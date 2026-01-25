@@ -12,12 +12,16 @@ export default function Welcome() {
   const router = useRouter();
 
   const handleSave = () => {
-    if (name.trim().length < 3) {
-      Alert.alert('Too Short', 'Please enter at least 3 characters.');
-      return;
+    try {
+      if (name.trim().length < 3) {
+        Alert.alert('Too Short', 'Please enter at least 3 characters.');
+        return;
+      }
+      setPlayerName(name.trim());
+      router.replace('/screens/Home');
+    } catch (error) {
+      Alert.alert('Crash Prevented', error.message);
     }
-    setPlayerName(name.trim());
-    router.replace('/screens/Home');
   };
 
   return (
