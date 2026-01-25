@@ -168,3 +168,14 @@ export const dbSubscribe = (
     )
     .subscribe();
 };
+
+export const dbRpc = async (functionName: string, params: object = {}) => {
+  try {
+    const { data, error } = await supabase.rpc(functionName, params);
+    if (error) throw error;
+    return { success: true, data };
+  } catch (error: any) {
+    console.error(`RPC Error [${functionName}]:`, error);
+    return { success: false, error: error.message };
+  }
+};

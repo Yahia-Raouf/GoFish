@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { Alert } from 'react-native';
-import { dbInsert, dbGet, dbGetList, dbDelete } from '../utils/supabase';
+import { dbInsert, dbGet, dbGetList, dbDelete, dbUpdate, dbRpc } from '../utils/supabase';
 import { usePlayerStore } from '../store/store';
 
 export const useLobby = () => {
@@ -21,22 +21,30 @@ export const useLobby = () => {
         return result;
     };
 
-    // --- ACTION: Create ---
+    // ============================================================
+    // 🏠 CREATE ROOM
+    // ============================================================
     const createRoom = async () => {
         setIsLoading(true);
         try {
             // If we have an old ID, we overwrite it (New Game = New Identity)
             const roomCode = generateCode();
 
-            const roomRes = await dbInsert('rooms', { code: roomCode, status: 'WAITING' });
+            // 1. Create the Room
+            const roomRes = await dbInsert('rooms', {
+                code: roomCode,
+                status: 'WAITING',
+                host_id: null // We'll rely on seat_index: 0 for host logic usually
+            });
             if (!roomRes.success) throw new Error(roomRes.error);
 
+            // 2. Add Myself as Player (Host)
             const playerRes = await dbInsert('players', {
                 room_code: roomCode,
                 name: playerName,
                 avatar: '😎',
                 seat_index: 0,
-                is_ready: true,
+                is_ready: true, // Host is always ready
             });
             if (!playerRes.success) throw new Error(playerRes.error);
 
@@ -50,7 +58,9 @@ export const useLobby = () => {
         }
     };
 
-    // --- ACTION: Join (Contains the "Player ID Check") ---
+    // ============================================================
+    // 🔗 JOIN ROOM
+    // ============================================================
     const joinRoom = async (codeInput) => {
         if (!codeInput || codeInput.length !== 4) {
             Alert.alert('Invalid Code', 'Code must be 4 characters.');
@@ -61,11 +71,9 @@ export const useLobby = () => {
         const code = codeInput.toUpperCase();
 
         try {
-            // 1. ZOMBIE CHECK
+            // 1. ZOMBIE CHECK (Keep existing logic)
             if (playerId) {
                 const existingPlayer = await dbGet('players', 'id', playerId);
-
-                // If I exist and I am trying to join the SAME room I'm already in...
                 if (existingPlayer.data && existingPlayer.success && existingPlayer.data.room_code === code) {
                     router.push({ pathname: '/screens/GameRoom', params: { roomCode: code } });
                     return;
@@ -74,17 +82,29 @@ export const useLobby = () => {
 
             // 2. STANDARD JOIN
             const roomRes = await dbGet('rooms', 'code', code);
-            if (!roomRes.success) throw new Error('Room not found.');
+            if (!roomRes.success || !roomRes.data) throw new Error('Room not found.');
 
             const playersRes = await dbGetList('players', 'room_code', code);
             const currentPlayers = playersRes.data || [];
             if (currentPlayers.length >= 4) throw new Error('Room is full.');
 
+            // --- 🛠️ FIX START: FIND FIRST AVAILABLE SEAT ---
+            const takenSeats = currentPlayers.map(p => p.seat_index);
+            let targetSeat = 0;
+            // Loop 0 to 3. If "i" is not in takenSeats, grab it.
+            for (let i = 0; i < 4; i++) {
+                if (!takenSeats.includes(i)) {
+                    targetSeat = i;
+                    break;
+                }
+            }
+            // --- 🛠️ FIX END ---
+
             const playerRes = await dbInsert('players', {
                 room_code: code,
                 name: playerName,
                 avatar: '🙂',
-                seat_index: currentPlayers.length,
+                seat_index: targetSeat, // <--- Use the safe index
                 is_ready: false,
             });
             if (!playerRes.success) throw new Error(playerRes.error);
@@ -100,16 +120,15 @@ export const useLobby = () => {
     };
 
     // ============================================================
-    // 🚪 LEAVE ROOM (Database Cleanup)
+    // 🚪 LEAVE ROOM
     // ============================================================
     const leaveRoom = async () => {
         setIsLoading(true);
         try {
-            // 1. Get the current ID directly from the store
             const currentId = usePlayerStore.getState().playerId;
 
             if (currentId) {
-                // 2. Delete the row from Supabase
+                // Delete the row from Supabase
                 const result = await dbDelete('players', 'id', currentId);
 
                 if (!result.success) {
@@ -119,10 +138,72 @@ export const useLobby = () => {
         } catch (error) {
             console.error('Error leaving room:', error);
         } finally {
-            // 3. Always clean up local state and navigate home
-            // We do this in 'finally' so the user isn't stuck if the DB fails
+            // Always clean up local state and navigate home
             setPlayerId(null);
-            router.back();
+            router.replace('/screens/Home');
+            setIsLoading(false);
+        }
+    };
+
+    // ============================================================
+    // ✅ TOGGLE READY (Guest Action)
+    // ============================================================
+    const toggleReady = async (currentStatus) => {
+        const currentId = usePlayerStore.getState().playerId;
+        if (!currentId) return;
+
+        try {
+            await dbUpdate('players', { is_ready: !currentStatus }, 'id', currentId);
+        } catch (error) {
+            console.error('Error toggling ready:', error);
+            Alert.alert('Error', 'Could not update status.');
+        }
+    };
+
+    // ============================================================
+    // 🚀 START GAME (Host Action)
+    // ============================================================
+    const startGame = async (roomCode) => {
+        setIsLoading(true);
+        try {
+            // 1. Set Status to PLAYING
+            // This triggers the screen switch for everyone subscribed to the room
+            const result = await dbUpdate('rooms', { status: 'PLAYING' }, 'code', roomCode);
+
+            if (!result.success) {
+                throw new Error('Failed to start game.');
+            }
+        } catch (error) {
+            console.error(error);
+            Alert.alert('Error', 'Could not start game.');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    // ============================================================
+    // 💀 HOST ACTION: END ROOM (KILL SWITCH)
+    // ============================================================
+    const endRoom = async (roomCode) => {
+        setIsLoading(true);
+        try {
+            // Call the SQL function to wipe the room
+            // Note: We use the parameter name defined in your SQL function (e.g., 'room_code')
+            const result = await dbRpc('clean_room', { target_code: roomCode });
+
+            if (!result.success) {
+                throw new Error('Failed to close room.');
+            }
+
+            // The Host needs to leave manually because the subscription 
+            // might be cut off before the DELETE event reaches them.
+            setPlayerId(null);
+            router.replace('/screens/Home');
+
+        } catch (error) {
+            console.error(error);
+            Alert.alert('Error', 'Could not end room.');
+        } finally {
             setIsLoading(false);
         }
     };
@@ -130,7 +211,10 @@ export const useLobby = () => {
     return {
         createRoom,
         joinRoom,
-        leaveRoom, // Exported so GameRoom can use it
+        leaveRoom,
+        toggleReady,
+        startGame,
+        endRoom, // <--- Export this
         isLoading
     };
 };
