@@ -15,11 +15,13 @@
       "autoIncrement": true
     },
     "preview": {
+      "environment": "preview",
       "android": {
         "buildType": "apk"
       },
-      "ios": {
-        "simulator": true
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "...",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "..."
       }
     }
   },

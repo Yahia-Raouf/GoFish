@@ -41,6 +41,9 @@
       "eas": {
         "projectId": "e19098b6-5895-47aa-a232-d1310ae7a10d"
       }
+    },
+    "android": {
+      "package": "com.yahia_raouf.GoFish"
     }
   }
 }
