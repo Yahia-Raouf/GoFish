@@ -30,7 +30,7 @@ A real-time, multiplayer implementation of the classic card game **Go Fish**, bu
 
 1. **Clone the repository:**
 ```bash
-git clone <repository-url>
+git clone https://github.com/Yahia-Raouf/GoFish
 cd GoFish
 
 ```
@@ -155,6 +155,8 @@ alter publication supabase_realtime add table game_moves;
 * `useGameLoop`: Orchestrates Go Fish logic and turn-based transitions.
 * `useGameRoom`: Manages data subscriptions and player presence.
 * `useLobby`: Handles room creation, joining, and status updates.
+* **`/store`**: Zustand store for persisting player state.
+* **`/utils`**: Generic Supabase database helpers.
 
 ### 🎮 Rules of the Game
 
@@ -184,6 +186,3 @@ This project implements the standard rules of Go Fish with several automated enh
 ### 📄 License
 
 This project is licensed under the MIT License - see the `LICENSE` file for details.
-
-* **`/store`**: Zustand store for persisting player state.
-* **`/utils`**: Generic Supabase database helpers.
