@@ -152,9 +152,9 @@ alter publication supabase_realtime add table game_moves;
 * **`/app/screens`**: Contains the primary views: `Welcome`, `Home`, and `GameRoom`.
 * **`/components`**: UI building blocks including `ActiveGame` for gameplay and `LobbyView` for room management.
 * **`/hooks`**: The "brain" of the app.
-* &emsp;`useGameLoop`: Orchestrates Go Fish logic and turn-based transitions.
-* &emsp;`useGameRoom`: Manages data subscriptions and player presence.
-* &emsp;`useLobby`: Handles room creation, joining, and status updates.
+  * `useGameLoop`: Orchestrates Go Fish logic and turn-based transitions.
+  * `useGameRoom`: Manages data subscriptions and player presence.
+  * `useLobby`: Handles room creation, joining, and status updates.
 * **`/store`**: Zustand store for persisting player state.
 * **`/utils`**: Generic Supabase database helpers.
 
