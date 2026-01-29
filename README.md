@@ -158,7 +158,7 @@ alter publication supabase_realtime add table game_moves;
 * **`/store`**: Zustand store for persisting player state.
 * **`/utils`**: Generic Supabase database helpers.
 
-### 🎮 Rules of the Game
+## 🎮 Rules of the Game
 
 This project implements the standard rules of Go Fish with several automated enhancements:
 
@@ -170,19 +170,15 @@ This project implements the standard rules of Go Fish with several automated enh
 * **Books (Sets)**: Once you collect all four cards of a single rank, they are automatically removed from your hand and added to your "Sets" (score).
 * **Winning**: The game ends when all 13 books have been collected or the ocean is empty and players run out of cards.
 
-### 🧠 Key Technical Challenges
+## 🧠 Key Technical Challenges
 
 * **Distributed State Management**: Synchronizing game turns and deck state across multiple devices without a centralized authoritative server required complex conditional logic in the `useGameLoop` hook to prevent race conditions during card transfers.
 * **The "Reaper" Presence Pattern**: One of the biggest challenges was handling players who disconnect mid-game. I implemented a heartbeat system where each player updates a `last_seen` timestamp. A "Reaper" logic was then built into the room hook where the player with the lowest seat index (the effective host) identifies and removes "ghost" players who haven't sent a heartbeat for over 60 seconds.
 * **Host Migration**: By using `seat_index` to determine the "effective host" rather than a static ID, the game can seamlessly continue even if the original room creator leaves, as the next available player automatically assumes administrative responsibilities.
 
-### 🚀 Future Roadmap
+## 🚀 Future Roadmap
 
 * **Card Animations**: Implement `react-native-reanimated` to show cards physically flying from one player's hand to another during a "Catch" or from the ocean during a "Fish."
 * **Global Chat**: Add a real-time chat component within the lobby and active game screens using Supabase's broadcast feature.
 * **Sound Effects**: Integrate audio feedback for successful catches, "Go Fish" events, and completing a book.
 * **Custom Avatars**: Allow players to upload or select custom avatars instead of the default emoji-based system.
-
-### 📄 License
-
-This project is licensed under the MIT License - see the `LICENSE` file for details.
