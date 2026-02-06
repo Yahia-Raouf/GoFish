@@ -6,6 +6,7 @@ import { useLobby } from '../../hooks/useLobby';
 import { useGameRoom } from '../../hooks/useGameRoom';
 import { LobbyView } from '../../components/LobbyView'; // <--- Imported
 import { ActiveGame } from '../../components/ActiveGame'; // <--- Imported
+import { useGameLoop } from '../../hooks/useGameLoop';
 
 export default function GameRoom() {
   const { roomCode } = useLocalSearchParams();
@@ -13,6 +14,8 @@ export default function GameRoom() {
   // 1. Logic Hooks
   const { leaveRoom, toggleReady, startGame, endRoom, isLoading } = useLobby();
   const { players, room } = useGameRoom(roomCode);
+
+  const onlineGameLoop = useGameLoop(room, players);
 
   // 2. Action Bundle (Pass this down to keep props clean)
   const lobbyActions = { leaveRoom, toggleReady, startGame, endRoom };
@@ -38,6 +41,7 @@ export default function GameRoom() {
           room={room}
           players={players}
           actions={{ leaveRoom, endRoom }} // ActiveGame might need different actions later
+          gameLoop={onlineGameLoop}
         />
       ) : (
         <LobbyView

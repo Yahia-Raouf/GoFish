@@ -94,6 +94,13 @@ export default function Home() {
               variant="secondary"
               disabled={isLoading}
             />
+
+            {/* Offline Game */}
+            <Button
+              title="Play vs Bots"
+              onPress={() => router.push('/screens/OfflineGameRoom')}
+              variant="secondary"
+            />
           </Column>
         </Column>
       </Center>

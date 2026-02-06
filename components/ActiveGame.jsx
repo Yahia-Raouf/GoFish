@@ -6,11 +6,11 @@ import { usePlayerStore } from '../store/store';
 import { useGameLoop } from '../hooks/useGameLoop';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
-export const ActiveGame = ({ room, players, actions }) => {
+export const ActiveGame = ({ room, players, actions, gameLoop }) => {
   const { playerId } = usePlayerStore();
 
   // 1. PLUG IN THE BRAIN
-  const { isMyTurn, askForCard, isProcessing, effectiveHost } = useGameLoop(room, players);
+  const { isMyTurn, askForCard, isProcessing, effectiveHost } = gameLoop;
 
   // 2. UI STATE
   const [modalVisible, setModalVisible] = useState(false);
