@@ -1,0 +1,32 @@
+<svg width="200" height="300" viewBox="0 0 200 300" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <linearGradient id="oceanGrad" x1="100" y1="0" x2="100" y2="300" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#1e3a8a" />
+            <stop offset="100%" stop-color="#020617" />
+        </linearGradient>
+
+        <pattern id="wavePattern" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
+            <path d="M0 10 Q5 5 10 10 T20 10" fill="none" stroke="#60a5fa" stroke-width="1" opacity="0.1" />
+        </pattern>
+    </defs>
+
+    <rect width="200" height="300" rx="15" fill="url(#oceanGrad)" />
+    <rect x="10" y="10" width="180" height="280" rx="10" fill="url(#wavePattern)" />
+
+    <rect x="12" y="12" width="176" height="276" rx="8" stroke="#FACC15" stroke-width="4" fill="none" opacity="0.8" />
+
+    <circle cx="100" cy="150" r="42" fill="#1e3a8a" stroke="#FACC15" stroke-width="2" opacity="0.95" />
+
+    <text x="100" y="135" text-anchor="middle" dominant-baseline="middle" font-family="Georgia, serif"
+        font-weight="bold" font-size="20" fill="#FACC15" letter-spacing="2">
+        GO
+    </text>
+
+    <line x1="75" y1="145" x2="125" y2="145" stroke="#FACC15" stroke-width="1.5" opacity="0.7" />
+
+    <text x="100" y="163" text-anchor="middle" dominant-baseline="middle" font-family="Georgia, serif"
+        font-weight="bold" font-size="24" fill="#FACC15" letter-spacing="1">
+        FISH
+    </text>
+
+</svg>
