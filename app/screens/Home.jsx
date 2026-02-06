@@ -42,7 +42,6 @@ export default function Home() {
 
   const handleJoinSubmit = () => {
     // Pass the code to the hook.
-    // The hook handles validation, loading state, and navigation.
     joinRoom(joinCode);
   };
 
@@ -63,12 +62,10 @@ export default function Home() {
         <Column gap={50} className="w-full px-10">
           {/* --- HEADER SECTION --- */}
           <View className="items-center">
-            {/* Game Logo */}
             <View className="mb-8">
               <GameTitle size="xl" />
             </View>
 
-            {/* Welcome Message */}
             <View className="flex-row flex-wrap items-baseline justify-center gap-2">
               <Text className="text-lg font-bold uppercase tracking-widest text-blue-200 opacity-80">
                 Welcome,
@@ -82,7 +79,7 @@ export default function Home() {
             {/* Create Room */}
             <Button
               title={isLoading ? 'Creating...' : 'Create Room'}
-              onPress={createRoom} // <-- Hook does the heavy lifting
+              onPress={createRoom}
               variant="primary"
               disabled={isLoading}
             />
@@ -95,11 +92,21 @@ export default function Home() {
               disabled={isLoading}
             />
 
-            {/* Offline Game */}
+            {/* --- VISUAL SEPARATOR --- */}
+            <View className="w-full flex-row items-center justify-center py-2 opacity-60">
+              <View className="h-[2px] w-12 rounded-full bg-blue-200/20" />
+              <Text className="mx-3 text-[10px] font-bold uppercase tracking-widest text-blue-200/50">
+                Solo Play
+              </Text>
+              <View className="h-[2px] w-12 rounded-full bg-blue-200/20" />
+            </View>
+
+            {/* Play vs Bots */}
             <Button
               title="Play vs Bots"
               onPress={() => router.push('/screens/OfflineGameRoom')}
-              variant="secondary"
+              variant="tertiary"
+              disabled={isLoading}
             />
           </Column>
         </Column>
@@ -114,9 +121,7 @@ export default function Home() {
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           className="flex-1 items-center justify-center bg-black/80">
-          {/* Modal Content */}
           <View className="w-4/5 items-center rounded-3xl border-2 border-blue-500/30 bg-slate-900 p-6 shadow-2xl shadow-blue-900/40">
-            {/* Close Button */}
             <TouchableOpacity
               onPress={() => setModalVisible(false)}
               className="absolute right-4 top-4 z-10 rounded-full bg-white/10 p-1">
@@ -130,7 +135,6 @@ export default function Home() {
               Ask your friend for the code
             </Text>
 
-            {/* Code Input */}
             <TextInput
               className="mb-8 w-full rounded-2xl border-2 border-slate-700 bg-slate-800 py-5 text-center text-3xl font-black uppercase tracking-[8px] text-white"
               placeholder="A B C D"
@@ -142,11 +146,10 @@ export default function Home() {
               selectionColor="#3b82f6"
             />
 
-            {/* Submit Button */}
             <View className="w-full">
               <Button
                 title={isLoading ? 'Joining...' : 'Enter Game'}
-                onPress={handleJoinSubmit} // <-- Triggers Hook Logic
+                onPress={handleJoinSubmit}
                 variant="secondary"
                 disabled={isLoading}
               />

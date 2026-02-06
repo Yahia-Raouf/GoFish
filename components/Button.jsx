@@ -13,11 +13,13 @@ export const Button = ({
   const getColors = () => {
     switch (variant) {
       case 'secondary':
-        return ['#22d3ee', '#3b82f6'];
+        return ['#22d3ee', '#3b82f6']; // Cyan -> Blue
+      case 'tertiary': // <--- NEW VARIANT (Purple for Bots)
+        return ['#c084fc', '#7e22ce']; // Purple-400 -> Purple-700
       case 'danger':
         return ['#f87171', '#dc2626'];
       default:
-        return ['#facc15', '#eab308'];
+        return ['#facc15', '#eab308']; // Yellow -> Amber (Primary)
     }
   };
 

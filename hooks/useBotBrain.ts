@@ -4,7 +4,7 @@ import { useOfflineGameStore, getRank } from '../store/offlineGameStore';
 // ============================================================
 // 🤖 BOT DIFFICULTY CONFIGURATION
 // ============================================================
-const BOT_CONFIG = {
+export const BOT_CONFIG = {
   MEMORY_SPAN: 8,              // Remember last N moves
   SMART_PLAY_PROBABILITY: 0.9, // 90% chance to use memory/logic
   TARGET_LEADER_BIAS: 0.5,     // 50% extra weight to target the winning player

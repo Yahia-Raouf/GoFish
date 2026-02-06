@@ -3,11 +3,23 @@ import { View, Text, ScrollView, Modal, TouchableOpacity } from 'react-native';
 import { Center } from './Layout';
 import { Button } from './Button';
 import { usePlayerStore } from '../store/store';
-import { useGameLoop } from '../hooks/useGameLoop';
+// import { useGameLoop } from '../hooks/useGameLoop'; // REMOVED: Now passed as prop
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useOfflineGameStore } from '../store/offlineGameStore';
+import { BOT_CONFIG } from '../hooks/useBotBrain';
 
 export const ActiveGame = ({ room, players, actions, gameLoop }) => {
   const { playerId } = usePlayerStore();
+
+  // 1. DETECT MODE
+  // In the offline store, we explicitly set room.code to 'OFFLINE'
+  const isOffline = room.code === 'OFFLINE';
+
+  // 2. SAFE LOG RETRIEVAL
+  // Hooks must be called at the top level, so we always call it,
+  // but we only use the data if we are actually offline.
+  const { logs: offlineLogs } = useOfflineGameStore();
+  const logs = isOffline ? offlineLogs : [];
 
   // 1. PLUG IN THE BRAIN
   const { isMyTurn, askForCard, isProcessing, effectiveHost } = gameLoop;
@@ -16,11 +28,14 @@ export const ActiveGame = ({ room, players, actions, gameLoop }) => {
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedTarget, setSelectedTarget] = useState(null);
   const [selectedRank, setSelectedRank] = useState(null);
+  const [historyVisible, setHistoryVisible] = useState(false);
 
   // 3. HELPER DATA
   const myPlayer = players.find((p) => p.id === playerId);
   const myRanks = Array.from(new Set(myPlayer?.cards?.map((c) => c.slice(0, -1)) || []));
   const opponents = players.filter((p) => p.id !== playerId);
+
+  const recentLogs = isOffline ? logs.slice(-BOT_CONFIG.MEMORY_SPAN).reverse() : [];
 
   const handleSubmitMove = () => {
     if (selectedTarget && selectedRank) {
@@ -37,12 +52,33 @@ export const ActiveGame = ({ room, players, actions, gameLoop }) => {
         {/* --- INFO DASHBOARD --- */}
         <View className="mb-6 gap-2 rounded-2xl border border-white/10 bg-slate-900/90 p-4 shadow-xl">
           <View className="flex-row items-center justify-between">
-            <View className="flex-row items-center gap-2">
-              <MaterialCommunityIcons name="cards-playing-outline" size={20} color="#60a5fa" />
-              <Text className="font-bold text-blue-200">
-                Ocean: <Text className="text-white">{room.ocean_cards?.length || 0}</Text>
-              </Text>
+            <View className="flex-row items-center gap-4">
+              {/* Ocean Info */}
+              <View className="flex-row items-center gap-2">
+                <MaterialCommunityIcons name="cards-playing-outline" size={20} color="#60a5fa" />
+                <Text className="font-bold text-blue-200">
+                  Ocean: <Text className="text-white">{room.ocean_cards?.length || 0}</Text>
+                </Text>
+              </View>
+
+              {/* HISTORY BUTTON (Only Visible Offline) */}
+              {isOffline && (
+                <TouchableOpacity
+                  onPress={() => setHistoryVisible(true)}
+                  className="flex-row items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-2 py-1">
+                  <MaterialCommunityIcons name="history" size={16} color="#60a5fa" />
+                  <Text className="text-[10px] font-bold text-blue-200">HISTORY</Text>
+                  {logs.length > 0 && (
+                    <View className="ml-1 h-4 w-4 items-center justify-center rounded-full bg-blue-500">
+                      <Text className="text-[8px] font-black text-white">
+                        {Math.min(logs.length, BOT_CONFIG.MEMORY_SPAN)}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              )}
             </View>
+
             <View className="rounded-full bg-black/40 px-3 py-1">
               <Text className="text-xs font-bold uppercase tracking-widest text-yellow-400">
                 Turn: Seat {room.turn_index}
@@ -77,7 +113,12 @@ export const ActiveGame = ({ room, players, actions, gameLoop }) => {
                         className={`text-lg font-bold ${isCurrentTurn ? 'text-yellow-400' : 'text-slate-300'}`}>
                         {p.name} {isMe ? '(You)' : ''}
                       </Text>
-                      {isHost && <MaterialCommunityIcons name="crown" size={14} color="#facc15" />}
+                      {/* Bot/Host Icon Logic */}
+                      {isOffline && p.isBot ? (
+                        <MaterialCommunityIcons name="robot" size={14} color="#94a3b8" />
+                      ) : (
+                        isHost && <MaterialCommunityIcons name="crown" size={14} color="#facc15" />
+                      )}
                     </View>
                   </View>
 
@@ -102,7 +143,6 @@ export const ActiveGame = ({ room, players, actions, gameLoop }) => {
           Your Hand
         </Text>
 
-        {/* 🛠️ UI UPDATE: ScrollView with max-h-60 (approx 2 rows) */}
         <ScrollView
           className="mb-6 max-h-60 grow-0"
           nestedScrollEnabled={true}
@@ -150,7 +190,6 @@ export const ActiveGame = ({ room, players, actions, gameLoop }) => {
           Your Sets (Score: {myPlayer?.sets?.length || 0})
         </Text>
 
-        {/* 🛠️ UI UPDATE: ScrollView with max-h-60 */}
         <ScrollView
           className="mb-24 max-h-60 grow-0"
           nestedScrollEnabled={true}
@@ -196,7 +235,6 @@ export const ActiveGame = ({ room, players, actions, gameLoop }) => {
 
         {/* --- EXIT CONTROLS --- */}
         <View className="mb-4 mt-4 w-full gap-3 opacity-80">
-          {/* Check if I am the Host using the effectiveHost from useGameLoop */}
           {myPlayer?.id === effectiveHost?.id ? (
             <Button
               title="End Game (Host)"
@@ -277,6 +315,115 @@ export const ActiveGame = ({ room, players, actions, gameLoop }) => {
           </View>
         </View>
       </Modal>
+
+      {/* --- MOVE HISTORY OVERLAY (OFFLINE ONLY) --- */}
+      {isOffline && (
+        <Modal
+          animationType="fade"
+          transparent={true}
+          visible={historyVisible}
+          onRequestClose={() => setHistoryVisible(false)}>
+          <TouchableOpacity
+            activeOpacity={1}
+            onPress={() => setHistoryVisible(false)}
+            className="flex-1 items-center justify-center bg-black/60">
+            <View
+              onStartShouldSetResponder={() => true}
+              className="max-h-[60%] w-[85%] rounded-3xl border border-white/20 bg-slate-900 p-6 shadow-2xl">
+              <View className="mb-4 flex-row items-center justify-between">
+                <View className="flex-row items-center gap-2">
+                  <MaterialCommunityIcons name="brain" size={20} color="#60a5fa" />
+                  <Text className="text-xl font-black italic text-white">MATCH MEMORY</Text>
+                </View>
+                <Text className="text-[10px] font-bold uppercase tracking-widest text-blue-200/50">
+                  Last {BOT_CONFIG.MEMORY_SPAN} Turns
+                </Text>
+              </View>
+
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {recentLogs.length > 0 ? (
+                  recentLogs.map((log, index) => (
+                    <View
+                      key={index}
+                      className="mb-3 rounded-xl border-l-2 border-blue-400 bg-white/5 p-3">
+                      <View className="mb-1">
+                        {log.type === 'FISH' ? (
+                          <Text className="text-xs text-blue-200">
+                            <Text className="font-bold text-white">{log.actorName}</Text> drew a
+                            card from the ocean.
+                          </Text>
+                        ) : log.type === 'LUCKY' ? (
+                          <Text className="text-xs text-blue-200">
+                            <Text className="font-bold text-white">{log.actorName}</Text> drew the{' '}
+                            <Text className="font-bold text-yellow-400">{log.rank}</Text> and goes
+                            again!
+                          </Text>
+                        ) : log.type === 'ROUND_START' ? (
+                          <Text className="text-xs font-black italic text-yellow-400/80">
+                            🌊 ROUND STARTED
+                          </Text>
+                        ) : (
+                          <Text className="text-xs text-blue-200">
+                            <Text className="font-bold text-white">{log.actorName}</Text> asked{' '}
+                            <Text className="font-bold text-white">{log.targetName}</Text> for{' '}
+                            <Text className="font-bold text-yellow-400">{log.rank}s</Text>
+                          </Text>
+                        )}
+                      </View>
+
+                      <View className="flex-row items-center gap-2">
+                        {log.type === 'CATCH' ? (
+                          <>
+                            <MaterialCommunityIcons name="check-circle" size={12} color="#4ade80" />
+                            <Text className="text-[10px] font-bold text-green-400">
+                              SUCCESS (+{log.count})
+                            </Text>
+                          </>
+                        ) : log.type === 'FAIL' ? (
+                          <>
+                            <MaterialCommunityIcons name="water" size={12} color="#60a5fa" />
+                            <Text className="text-[10px] font-bold text-blue-400">GO FISH</Text>
+                          </>
+                        ) : log.type === 'LUCKY' ? (
+                          <>
+                            <MaterialCommunityIcons name="star" size={12} color="#facc15" />
+                            <Text className="text-[10px] font-bold text-yellow-400">
+                              LUCKY DRAW
+                            </Text>
+                          </>
+                        ) : log.type === 'FISH' ? (
+                          <>
+                            <MaterialCommunityIcons
+                              name="cards-outline"
+                              size={12}
+                              color="#94a3b8"
+                            />
+                            <Text className="text-[10px] font-bold text-slate-400">DREW CARD</Text>
+                          </>
+                        ) : (
+                          <View />
+                        )}
+                      </View>
+                    </View>
+                  ))
+                ) : (
+                  <View className="items-center py-10">
+                    <Text className="text-center italic text-white/30">
+                      The game has just begun. No moves recorded yet.
+                    </Text>
+                  </View>
+                )}
+              </ScrollView>
+
+              <TouchableOpacity
+                onPress={() => setHistoryVisible(false)}
+                className="mt-4 items-center rounded-xl bg-blue-600 py-3">
+                <Text className="font-bold text-white">Back to Game</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </Modal>
+      )}
     </Center>
   );
 };
