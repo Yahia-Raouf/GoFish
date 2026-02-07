@@ -3,7 +3,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // ============================================================
-// 🃏 CARD UTILITIES (Self-contained for Offline Mode)
+// 🃏 CARD UTILITIES
 // ============================================================
 export const SUITS = ['H', 'D', 'C', 'S'];
 export const RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
@@ -34,7 +34,7 @@ export const generateDeck = () => {
 };
 
 // ============================================================
-// 📦 OFFLINE STORE
+// 💾 OFFLINE STORE
 // ============================================================
 const BOT_NAMES = ['Bot Alice', 'Bot Bob', 'Bot Charlie'];
 
@@ -46,6 +46,7 @@ interface Player {
   seat_index: number;
   isBot: boolean;
   avatar?: string;
+  score: number; 
 }
 
 interface RoomState {
@@ -54,7 +55,6 @@ interface RoomState {
   ocean_cards: string[];
   turn_index: number;
   direction: number;
-  // NEW: Track how long the human has been waiting
   turns_since_human_played: number; 
 }
 
@@ -81,17 +81,16 @@ export const useOfflineGameStore = create<OfflineGameState>()(
         ocean_cards: [],
         turn_index: 0,
         direction: 1,
-        turns_since_human_played: 0, // Default
+        turns_since_human_played: 0, 
       },
       players: [],
       logs: [],
 
       // ACTIONS
       initGame: (humanName, humanId) => {
-        console.log("🎮 Initializing Offline Game...");
-        const deck = generateDeck();
+        console.log("🎮 Initializing Offline Game (Empty State)...");
         
-        // 1. Create Players
+        // 1. Create Players with EMPTY hands
         const human: Player = { 
             id: humanId || 'human-1', 
             name: humanName || 'Player', 
@@ -99,7 +98,8 @@ export const useOfflineGameStore = create<OfflineGameState>()(
             sets: [], 
             seat_index: 0, 
             isBot: false,
-            avatar: '👤'
+            avatar: '🤴',
+            score: 0 
         };
 
         const bots: Player[] = BOT_NAMES.map((name, i) => ({
@@ -109,23 +109,20 @@ export const useOfflineGameStore = create<OfflineGameState>()(
             sets: [], 
             seat_index: i + 1, 
             isBot: true,
-            avatar: '🤖'
+            avatar: '🤖',
+            score: 0 
         }));
 
         const newPlayers = [human, ...bots];
         
-        // 2. Deal 7 Cards to everyone
-        newPlayers.forEach(p => {
-            p.cards = sortHand(deck.splice(0, 7));
-        });
-
-        // 3. Set State
+        // 2. Set State with EMPTY OCEAN
+        // This forces the GameLoop to trigger 'startNewRound' immediately
         set({
             room: {
                 code: 'OFFLINE',
                 status: 'PLAYING',
-                ocean_cards: deck,
-                turn_index: 0, // Human starts
+                ocean_cards: [], // <--- Empty Ocean triggers the loop
+                turn_index: 0, 
                 direction: 1,
                 turns_since_human_played: 0
             },

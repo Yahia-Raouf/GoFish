@@ -118,15 +118,18 @@ export const ActionOverlay = ({ action, onFinished }) => {
       case 'CATCH':
         return (
           <View className="items-center">
-            <Animated.View entering={BounceIn.delay(200)} className="mb-4">
+            {/* BounceIn with standard duration instead of spring stiffness */}
+            <Animated.View entering={BounceIn.duration(600)} className="mb-4">
               <CardVisual
                 card={String(action.rank) + 'S'}
                 size="xl"
                 className="border-4 border-green-400"
               />
-              <View className="absolute -bottom-4 -right-4 rounded-full border-4 border-slate-900 bg-green-500 p-2 shadow-lg">
+              <Animated.View
+                entering={ZoomIn.delay(200)}
+                className="absolute -right-4 -top-4 rounded-full border-4 border-slate-900 bg-green-500 p-2 shadow-lg">
                 <MaterialCommunityIcons name="check-bold" size={28} color="white" />
-              </View>
+              </Animated.View>
             </Animated.View>
 
             <Animated.Text

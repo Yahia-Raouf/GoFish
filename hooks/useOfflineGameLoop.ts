@@ -22,8 +22,14 @@ export const useOfflineGameLoop = () => {
   const [isProcessing, setProcessing] = useState(false);
   const [currentAction, setCurrentAction] = useState<any>(null);
 
-  // 🛑 REF to track the skip timer so we can cancel it on reset
+  // 🛑 REFS: Hold latest state to avoid "Stale Closures" in async functions
+  const playersRef = useRef(players);
+  const roomRef = useRef(room);
   const skipTurnTimeoutRef = useRef<NodeJS.Timeout | number | null>(null);
+
+  // Keep Refs Synced
+  useEffect(() => { playersRef.current = players; }, [players]);
+  useEffect(() => { roomRef.current = room; }, [room]);
 
   const sortedPlayers = [...players].sort((a, b) => a.seat_index - b.seat_index);
   const effectiveHost = sortedPlayers[0];
@@ -144,15 +150,17 @@ export const useOfflineGameLoop = () => {
   };
 
   const executeGoFish = async (actorId: string, rankAsked: string, nextTurnSeat: number) => {
-      const actor = players.find(p => p.id === actorId);
-      
-      if (!room.ocean_cards || room.ocean_cards.length === 0) {
+      // ⚠️ Use REF for Ocean to ensure we don't draw from an empty stale ocean
+      const currentOcean = [...(roomRef.current.ocean_cards || [])];
+
+      if (currentOcean.length === 0) {
+          console.log("Ocean Empty. Passing turn.");
           passTurn(nextTurnSeat);
           setProcessing(false);
           return;
       }
 
-      const currentOcean = [...room.ocean_cards];
+      const actor = playersRef.current.find(p => p.id === actorId); // ⚠️ Use REF
       const drawnCard = currentOcean.pop();
       const drawnRank = getRank(drawnCard as string);
 
@@ -208,26 +216,32 @@ export const useOfflineGameLoop = () => {
       setProcessing(false);
   };
 
+  // 🔄 FIX: Use REFS to ensure passTurn always sees the *current* cards of players
   const passTurn = (forcedNextSeat: number | null = null) => {
-    let candidates = [...sortedPlayers];
-    const currentIdx = candidates.findIndex(p => p.seat_index === room.turn_index);
+    // 1. Use the REF for latest data
+    const currentPlayers = [...playersRef.current].sort((a, b) => a.seat_index - b.seat_index);
+    const currentRoom = roomRef.current;
+
+    const currentIdx = currentPlayers.findIndex(p => p.seat_index === currentRoom.turn_index);
     
-    let searchStartIndex = currentIdx + room.direction;
+    let searchStartIndex = currentIdx + currentRoom.direction;
     if (forcedNextSeat !== null) {
-        const forcedIdx = candidates.findIndex(p => p.seat_index === forcedNextSeat);
+        const forcedIdx = currentPlayers.findIndex(p => p.seat_index === forcedNextSeat);
         if (forcedIdx !== -1) searchStartIndex = forcedIdx;
     }
 
-    for (let i = 0; i < candidates.length; i++) {
-        let idx = (searchStartIndex + i) % candidates.length;
-        if (idx < 0) idx += candidates.length;
-        const candidate = candidates[idx];
+    // 2. Scan for a valid player
+    for (let i = 0; i < currentPlayers.length; i++) {
+        let idx = (searchStartIndex + i) % currentPlayers.length;
+        if (idx < 0) idx += currentPlayers.length;
+        const candidate = currentPlayers[idx];
 
+        // 3. THIS CHECK IS NOW SAFE (Not Stale)
         if (candidate.cards && candidate.cards.length > 0) {
             
             const newAttentionCount = (!candidate.isBot) 
                 ? 0 
-                : (room.turns_since_human_played || 0) + 1;
+                : (currentRoom.turns_since_human_played || 0) + 1;
 
             updateRoom({ 
                 turn_index: candidate.seat_index,
@@ -236,11 +250,13 @@ export const useOfflineGameLoop = () => {
             return;
         }
     }
+
+    console.log("⚠️ No active players found via passTurn. Triggering Round End.");
+    startNewRound();
   };
 
   // 🔄 FIX: Handle Empty Hands Gracefully (With CLEANUP)
   useEffect(() => {
-    // If the hook re-runs (game state changes), clear any pending skip timer
     if (skipTurnTimeoutRef.current) {
       clearTimeout(skipTurnTimeoutRef.current);
       skipTurnTimeoutRef.current = null;
@@ -250,7 +266,6 @@ export const useOfflineGameLoop = () => {
     
     const currentPlayer = players.find(p => p.seat_index === room.turn_index);
     
-    // Check if the CURRENT player is empty
     if (currentPlayer && currentPlayer.cards.length === 0) {
         const activePlayers = players.filter(p => p.cards.length > 0);
         
@@ -258,28 +273,27 @@ export const useOfflineGameLoop = () => {
             console.log(`⏩ FAILSAFE: ${currentPlayer.name} has no cards. Scheduling skip...`);
             setProcessing(true);
             
-            // Store timer in ref so we can cancel it if game resets
             skipTurnTimeoutRef.current = setTimeout(() => {
                 console.log(`⏩ EXECUTING SKIP for ${currentPlayer.name}`);
-                passTurn();
+                passTurn(); // <--- Now uses Ref, so it's safe
                 setProcessing(false);
             }, 1000);
+        } else {
+             startNewRound();
         }
     }
 
-    // Cleanup on unmount or re-render
     return () => {
-      if (skipTurnTimeoutRef.current) {
-        clearTimeout(skipTurnTimeoutRef.current);
-      }
+      if (skipTurnTimeoutRef.current) clearTimeout(skipTurnTimeoutRef.current);
     };
   }, [room.turn_index, players, isProcessing]);
 
+  // 🔄 FIX: Trigger Round Start if Ocean & Hands are Empty
   useEffect(() => {
       if (room.status !== 'PLAYING' || isProcessing) return;
       
       const activePlayers = players.filter(p => p.cards.length > 0);
-      const isOceanEmpty = room.ocean_cards.length === 0;
+      const isOceanEmpty = !room.ocean_cards || room.ocean_cards.length === 0;
 
       if (isOceanEmpty && activePlayers.length <= 1) {
           startNewRound();
@@ -287,36 +301,49 @@ export const useOfflineGameLoop = () => {
   }, [players, room.ocean_cards]);
 
   const startNewRound = async () => {
-    if(isProcessing) return;
+    if (isProcessing) return;
     setProcessing(true);
 
-    // Clear any pending skips when round restarts
     if (skipTurnTimeoutRef.current) clearTimeout(skipTurnTimeoutRef.current);
 
     console.log("🎰 Starting New Round Sequence...");
     
-    triggerAction({
-        type: 'ROUND', 
-        duration: TIMING.ROUND
-    });
-    
-    await delay(TIMING.ROUND); 
+    try {
+        triggerAction({
+            type: 'ROUND', 
+            duration: TIMING.ROUND
+        });
+        
+        await delay(TIMING.ROUND); 
 
-    const deck = generateDeck();
-    
-    players.forEach(p => {
-        updatePlayer(p.id, { cards: sortHand(deck.splice(0, 7)) });
-    });
+        const deck = generateDeck();
+        
+        // ⚠️ Use REF for loop to be safe, though updatePlayer uses ID so it's fine
+        playersRef.current.forEach(p => {
+            const currentScore = p.score || 0;
+            const setsWon = p.sets?.length || 0;
+            
+            updatePlayer(p.id, { 
+                cards: sortHand(deck.splice(0, 7)), 
+                sets: [], 
+                score: currentScore + setsWon 
+            });
+        });
 
-    updateRoom({ 
-        ocean_cards: deck, 
-        turn_index: 0,
-        status: 'PLAYING',
-        turns_since_human_played: 0 
-    });
-    
-    addLog({ type: 'ROUND_START' });
-    setProcessing(false); 
+        updateRoom({ 
+            ocean_cards: deck, 
+            turn_index: 0,
+            status: 'PLAYING',
+            turns_since_human_played: 0 
+        });
+        
+        addLog({ type: 'ROUND_START' });
+
+    } catch (err) {
+        console.error("Start Round Error:", err);
+    } finally {
+        setProcessing(false); 
+    }
   };
 
   const askForCard = (targetId: string, rank: string) => {

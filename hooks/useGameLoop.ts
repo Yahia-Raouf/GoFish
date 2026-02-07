@@ -99,14 +99,14 @@ export const useGameLoop = (room: any, players: any[]) => {
     console.log('🎰 HOST: Starting New Round...');
 
     try {
-      // 1. Trigger Animation for everyone (INSERT ROUND MOVE)
+      // 1. Trigger Animation for everyone
       await dbInsert('game_moves', {
           room_code: room.code,
           actor_id: playerId,
           action_type: 'ROUND', 
       });
 
-      // 2. Wait for animation to play (3s) before dealing
+      // 2. Wait for animation to play (3s)
       await delay(3000);
 
       const deck = generateDeck();
@@ -115,8 +115,17 @@ export const useGameLoop = (room: any, players: any[]) => {
 
       for (const player of players) {
         const hand = deck.splice(0, CARDS_PER_PLAYER);
+        
+        // 🛑 CRITICAL FIX: Add current sets to total score before resetting sets
+        const currentScore = player.score || 0;
+        const setsWon = player.sets?.length || 0;
+
         updates.push(
-          dbUpdate('players', { cards: sortHand(hand), sets: [] }, 'id', player.id)
+          dbUpdate('players', { 
+              cards: sortHand(hand), 
+              sets: [], 
+              score: currentScore + setsWon // <--- SAVE SCORE HERE
+          }, 'id', player.id)
         );
       }
 
@@ -131,7 +140,7 @@ export const useGameLoop = (room: any, players: any[]) => {
       );
 
       await Promise.all(updates);
-      console.log('✅ Round Started! Sets cleared.');
+      console.log('✅ Round Started! Scores updated.');
 
     } catch (error) {
       console.error('Deal Error:', error);
