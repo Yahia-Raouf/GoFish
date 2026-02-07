@@ -1,41 +1,85 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { View, Text, ScrollView, Modal, TouchableOpacity } from 'react-native';
 import { Center } from './Layout';
 import { Button } from './Button';
 import { usePlayerStore } from '../store/store';
-// import { useGameLoop } from '../hooks/useGameLoop'; // REMOVED: Now passed as prop
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useOfflineGameStore } from '../store/offlineGameStore';
+import { useOfflineGameStore, getRank } from '../store/offlineGameStore';
 import { BOT_CONFIG } from '../hooks/useBotBrain';
 
 export const ActiveGame = ({ room, players, actions, gameLoop }) => {
   const { playerId } = usePlayerStore();
 
   // 1. DETECT MODE
-  // In the offline store, we explicitly set room.code to 'OFFLINE'
   const isOffline = room.code === 'OFFLINE';
 
   // 2. SAFE LOG RETRIEVAL
-  // Hooks must be called at the top level, so we always call it,
-  // but we only use the data if we are actually offline.
   const { logs: offlineLogs } = useOfflineGameStore();
   const logs = isOffline ? offlineLogs : [];
 
-  // 1. PLUG IN THE BRAIN
+  // 3. PLUG IN THE BRAIN
   const { isMyTurn, askForCard, isProcessing, effectiveHost } = gameLoop;
 
-  // 2. UI STATE
+  // 4. UI STATE
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedTarget, setSelectedTarget] = useState(null);
   const [selectedRank, setSelectedRank] = useState(null);
   const [historyVisible, setHistoryVisible] = useState(false);
 
-  // 3. HELPER DATA
+  // 5. HELPER DATA
   const myPlayer = players.find((p) => p.id === playerId);
   const myRanks = Array.from(new Set(myPlayer?.cards?.map((c) => c.slice(0, -1)) || []));
   const opponents = players.filter((p) => p.id !== playerId);
 
   const recentLogs = isOffline ? logs.slice(-BOT_CONFIG.MEMORY_SPAN).reverse() : [];
+
+  // ============================================================
+  // 🧠 VISUAL MEMORY LOGIC
+  // ============================================================
+  const knownHands = useMemo(() => {
+    if (!isOffline) return {};
+
+    // 1. Initialize empty knowledge base
+    const knowledge = {};
+    players.forEach((p) => {
+      knowledge[p.id] = new Set();
+    });
+
+    // 2. Scan recent memory logs
+    const memoryLogs = logs.slice(-BOT_CONFIG.MEMORY_SPAN);
+
+    memoryLogs.forEach((log) => {
+      const rank = String(log.rank); // Ensure string
+      if (!rank || rank === 'undefined') return;
+
+      // RULE A: If you CATCH, you definitely have it (and Target definitely lost it)
+      if (log.type === 'CATCH') {
+        knowledge[log.actorId]?.add(rank);
+        knowledge[log.targetId]?.delete(rank); // Target gave it away
+      }
+      // RULE B: If you ASK (FAIL), you must have had it to ask
+      else if (log.type === 'FAIL') {
+        knowledge[log.actorId]?.add(rank);
+      }
+      // RULE C: Lucky Draw
+      else if (log.type === 'LUCKY') {
+        knowledge[log.actorId]?.add(rank);
+      }
+    });
+
+    // 3. Remove "Dead" Ranks (Books that are already on the table)
+    const bookedRanks = new Set();
+    players.forEach((p) => {
+      p.sets.forEach((s) => bookedRanks.add(s.rank));
+    });
+
+    // Clean up knowledge base
+    Object.keys(knowledge).forEach((pid) => {
+      bookedRanks.forEach((br) => knowledge[pid].delete(br));
+    });
+
+    return knowledge;
+  }, [logs, players, isOffline]);
 
   const handleSubmitMove = () => {
     if (selectedTarget && selectedRank) {
@@ -99,6 +143,9 @@ export const ActiveGame = ({ room, players, actions, gameLoop }) => {
               const isMe = p.id === playerId;
               const isHost = p.id === effectiveHost?.id;
 
+              // Get Known Cards for this player
+              const knownRanks = Array.from(knownHands[p.id] || []).sort();
+
               return (
                 <View
                   key={p.id}
@@ -107,19 +154,33 @@ export const ActiveGame = ({ room, players, actions, gameLoop }) => {
                       ? 'border-yellow-400 bg-slate-800'
                       : 'border-transparent bg-slate-900/50'
                   }`}>
-                  <View>
+                  <View className="flex-1">
+                    {/* Name & Role Row */}
                     <View className="flex-row items-center gap-2">
                       <Text
                         className={`text-lg font-bold ${isCurrentTurn ? 'text-yellow-400' : 'text-slate-300'}`}>
                         {p.name} {isMe ? '(You)' : ''}
                       </Text>
-                      {/* Bot/Host Icon Logic */}
                       {isOffline && p.isBot ? (
                         <MaterialCommunityIcons name="robot" size={14} color="#94a3b8" />
                       ) : (
                         isHost && <MaterialCommunityIcons name="crown" size={14} color="#facc15" />
                       )}
                     </View>
+
+                    {/* 🧠 KNOWLEDGE INDICATORS (New Feature) */}
+                    {isOffline && !isMe && knownRanks.length > 0 && (
+                      <View className="mt-1 flex-row flex-wrap gap-1">
+                        {knownRanks.map((rank) => (
+                          <View
+                            key={rank}
+                            className="flex-row items-center rounded border border-blue-500/20 bg-blue-950/60 px-1.5 py-0.5">
+                            <MaterialCommunityIcons name="eye-outline" size={10} color="#60a5fa" />
+                            <Text className="ml-1 text-[10px] font-bold text-blue-200">{rank}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
                   </View>
 
                   <View className="items-end">
@@ -340,7 +401,7 @@ export const ActiveGame = ({ room, players, actions, gameLoop }) => {
                 </Text>
               </View>
 
-              <ScrollView showsVerticalScrollIndicator={false}>
+              <ScrollView className="z-50" showsVerticalScrollIndicator={true}>
                 {recentLogs.length > 0 ? (
                   recentLogs.map((log, index) => (
                     <View

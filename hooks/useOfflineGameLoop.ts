@@ -2,20 +2,36 @@ import { useState, useEffect } from 'react';
 import { useOfflineGameStore, getRank, sortHand, generateDeck } from '../store/offlineGameStore';
 import { usePlayerStore } from '../store/store';
 
+// ⏱️ CONTROL ANIMATION TIMES HERE
+const TIMING = {
+  ASK: 3000,    // Time to read "Player A asks Player B"
+  CATCH: 2000,  // Celebration time for success
+  FAIL: 1500,   // "Go Fish" message time
+  FISH: 1500,   // Standard draw (keep it snappy)
+  LUCKY: 3000,  // "Lucky Draw" celebration
+  BOOK: 2000    // "Set Completed" (needs more time to read)
+};
+
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 export const useOfflineGameLoop = () => {
   const { room, players, updatePlayer, updateRoom, addLog } = useOfflineGameStore();
   const { playerId } = usePlayerStore();
   
   const [isProcessing, setProcessing] = useState(false);
+  const [currentAction, setCurrentAction] = useState<any>(null);
 
-  // Derived State
   const sortedPlayers = [...players].sort((a, b) => a.seat_index - b.seat_index);
   const effectiveHost = sortedPlayers[0];
   const isMyTurn = players.find(p => p.seat_index === room.turn_index)?.id === playerId;
 
-  // ============================================================
-  // 📘 LOGIC: BOOK CHECK
-  // ============================================================
+  const triggerAction = (action: any) => {
+    setCurrentAction(null);
+    setTimeout(() => setCurrentAction(action), 10);
+  };
+  
+  const clearAction = () => setCurrentAction(null);
+
   const processBooks = (hand: string[], currentSets: any[]) => {
       const rankCounts: Record<string, number> = {};
       hand.forEach(c => {
@@ -26,20 +42,19 @@ export const useOfflineGameLoop = () => {
       let newHand = [...hand];
       let newSets = [...(currentSets || [])];
       let bookFound = false;
+      let newBookRank = null;
 
       for (const rank in rankCounts) {
           if (rankCounts[rank] === 4) {
               bookFound = true;
+              newBookRank = rank;
               newHand = newHand.filter(c => getRank(c) !== rank);
               newSets.push({ rank, timestamp: Date.now() });
           }
       }
-      return { newHand, newSets, bookFound };
+      return { newHand, newSets, bookFound, newBookRank };
   };
 
-  // ============================================================
-  // ⚙️ CORE MOVE EXECUTION
-  // ============================================================
   const processMove = async (actorId: string, targetId: string, rank: string) => {
     if (isProcessing) return;
     setProcessing(true);
@@ -49,48 +64,71 @@ export const useOfflineGameLoop = () => {
 
     if (!actor || !target) { setProcessing(false); return; }
 
+    // 1. ASK ANIMATION
+    triggerAction({
+        type: 'ASK',
+        actorName: actor.name,
+        targetName: target.name,
+        rank: rank,
+        duration: TIMING.ASK // <--- Passing duration
+    });
+
+    await delay(TIMING.ASK); // <--- Sync logic with animation
+
     try {
         const targetHand = target.cards || [];
         const cardsToTransfer = targetHand.filter((c: string) => getRank(c) === rank);
 
         if (cardsToTransfer.length > 0) {
-            // --- CATCH! ---
+            // --- CATCH ---
             console.log(`🎣 CATCH: ${actor.name} took ${cardsToTransfer.length} ${rank}s from ${target.name}`);
             
-            // 1. Update Target
             const newTargetHand = targetHand.filter((c: string) => getRank(c) !== rank);
             updatePlayer(targetId, { cards: newTargetHand });
 
-            // 2. Update Actor
             const rawActorHand = [...actor.cards, ...cardsToTransfer];
-            const { newHand, newSets } = processBooks(rawActorHand, actor.sets);
+            const { newHand, newSets, newBookRank } = processBooks(rawActorHand, actor.sets);
             updatePlayer(actorId, { cards: sortHand(newHand), sets: newSets });
             
-            // 3. Log (With IDs now!)
-            addLog({ 
-                type: 'CATCH', 
-                actorId: actor.id, 
-                actorName: actor.name, 
-                targetId: target.id, 
-                targetName: target.name, 
-                rank, 
-                count: cardsToTransfer.length 
+            addLog({ type: 'CATCH', actorId: actor.id, actorName: actor.name, targetId: target.id, targetName: target.name, rank, count: cardsToTransfer.length });
+
+            // 2. CATCH ANIMATION
+            triggerAction({
+                type: 'CATCH',
+                actorName: actor.name,
+                targetName: target.name,
+                rank,
+                count: cardsToTransfer.length,
+                duration: TIMING.CATCH // <--- Passing duration
             });
+
+            if (newBookRank) {
+                // Wait for CATCH to finish before showing BOOK
+                setTimeout(() => {
+                    triggerAction({
+                        type: 'BOOK',
+                        actorName: actor.name,
+                        rank: newBookRank,
+                        duration: TIMING.BOOK
+                    });
+                }, TIMING.CATCH + 800); 
+            }
+
         } else {
-            // --- GO FISH! ---
+            // --- FAIL / GO FISH ---
             console.log(`🌊 GO FISH: ${actor.name} missed asking ${target.name} for ${rank}`);
+            addLog({ type: 'FAIL', actorId: actor.id, actorName: actor.name, targetId: target.id, targetName: target.name, rank });
             
-            addLog({ 
-                type: 'FAIL', 
-                actorId: actor.id, 
-                actorName: actor.name, 
-                targetId: target.id, 
-                targetName: target.name, 
-                rank 
+            triggerAction({
+                type: 'FAIL',
+                actorName: actor.name,
+                targetName: target.name,
+                rank,
+                duration: TIMING.FAIL // <--- Passing duration
             });
             
-            // Delay for UX
-            setTimeout(() => executeGoFish(actorId, rank, target.seat_index), 500);
+            // Wait for FAIL animation before drawing
+            setTimeout(() => executeGoFish(actorId, rank, target.seat_index), TIMING.FAIL);
             return; 
         }
     } catch (error) {
@@ -99,16 +137,6 @@ export const useOfflineGameLoop = () => {
     setProcessing(false);
   };
 
-  // ============================================================
-  // 🎮 HUMAN UI WRAPPER
-  // ============================================================
-  const askForCard = (targetId: string, rank: string) => {
-    processMove(playerId as string, targetId, rank);
-  };
-
-  // ============================================================
-  // 🎣 GO FISH LOGIC
-  // ============================================================
   const executeGoFish = (actorId: string, rankAsked: string, nextTurnSeat: number) => {
       const actor = players.find(p => p.id === actorId);
       
@@ -123,34 +151,51 @@ export const useOfflineGameLoop = () => {
       const drawnRank = getRank(drawnCard as string);
 
       const rawActorHand = [...actor!.cards, drawnCard!];
-      const { newHand, newSets } = processBooks(rawActorHand, actor!.sets);
+      const { newHand, newSets, newBookRank } = processBooks(rawActorHand, actor!.sets);
 
       updateRoom({ ocean_cards: currentOcean });
       updatePlayer(actorId, { cards: sortHand(newHand), sets: newSets });
 
       if (drawnRank === rankAsked) {
+          // --- LUCKY ---
           console.log(`🍀 LUCKY DRAW: ${actor!.name} got the ${rankAsked}!`);
-          addLog({ 
-              type: 'LUCKY', 
-              actorId: actor!.id, 
-              actorName: actor!.name, 
-              rank: rankAsked 
+          addLog({ type: 'LUCKY', actorId: actor!.id, actorName: actor!.name, rank: rankAsked });
+          
+          triggerAction({
+              type: 'LUCKY',
+              actorName: actor!.name,
+              rank: rankAsked,
+              duration: TIMING.LUCKY
           });
       } else {
+          // --- STANDARD FISH ---
           console.log(`🐟 FISH: ${actor!.name} drew a card. Turn Passes.`);
-          addLog({ 
-              type: 'FISH', 
-              actorId: actor!.id, 
-              actorName: actor!.name 
+          addLog({ type: 'FISH', actorId: actor!.id, actorName: actor!.name });
+          
+          triggerAction({
+            type: 'FISH',
+            actorName: actor!.name,
+            duration: TIMING.FISH
           });
+
           passTurn(nextTurnSeat);
       }
+
+      if (newBookRank) {
+          const previousActionTime = drawnRank === rankAsked ? TIMING.LUCKY : TIMING.FISH;
+          setTimeout(() => {
+               triggerAction({
+                   type: 'BOOK',
+                   actorName: actor!.name,
+                   rank: newBookRank,
+                   duration: TIMING.BOOK
+               });
+          }, previousActionTime + 800);
+     }
+
       setProcessing(false);
   };
 
-  // ============================================================
-  // ⏭️ TURN & ROUND MANAGEMENT
-  // ============================================================
   const passTurn = (forcedNextSeat: number | null = null) => {
     let candidates = [...sortedPlayers];
     const currentIdx = candidates.findIndex(p => p.seat_index === room.turn_index);
@@ -204,5 +249,19 @@ export const useOfflineGameLoop = () => {
     addLog({ type: 'ROUND_START' });
   };
 
-  return { isMyTurn, askForCard, processMove, isProcessing, effectiveHost, players, room };
+  const askForCard = (targetId: string, rank: string) => {
+    processMove(playerId as string, targetId, rank);
+  };
+
+  return {
+    isMyTurn,
+    askForCard,
+    processMove,
+    isProcessing,
+    effectiveHost,
+    players, 
+    room,
+    currentAction,
+    clearAction
+  };
 };
