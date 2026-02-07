@@ -1,64 +1,68 @@
-# GoFish Multiplayer
+# GoFish Multiplayer & Solo
 
-A real-time, multiplayer implementation of the classic card game **Go Fish**, built with **React Native** and **Expo**. This project serves as a **personal portfolio project** demonstrating full-stack mobile development using a serverless architecture.
+A real-time, multiplayer and solo implementation of the classic card game **Go Fish**, built with **React Native** and **Expo**. This project serves as a **personal portfolio project** demonstrating full-stack mobile development using a serverless architecture for multiplayer and a sophisticated local state engine for offline play.
 
 ## 🌟 Features
 
-* **Real-time Multiplayer:** Leverages Supabase Realtime to synchronize game state, player hands, and moves across devices instantly.
-* **Lobby System:** Create or join game rooms using unique 4-character codes.
-* **Automated Game Engine:** A custom `useGameLoop` hook manages the complex rules of Go Fish, including asking for cards, drawing from the "ocean," and completing books.
-* **Resilient Presence System:** Features a "Heartbeat" and "Reaper" mechanism to automatically clean up inactive players and handle host migration seamlessly.
-* **Persistent Identity:** Uses Zustand with local storage to remember player names and IDs across sessions.
-* **Responsive UI:** Built with NativeWind (Tailwind CSS) for a modern, mobile-first aesthetic.
+- **Real-time Multiplayer:** Leverages Supabase Realtime to synchronize game state, player hands, and moves across devices instantly.
+- **Lobby System:** Create or join game rooms using unique 4-character codes.
+- **Automated Game Engine:** A custom `useGameLoop` hook manages the complex rules of Go Fish, including asking for cards, drawing from the "ocean," and completing books.
+- **Resilient Presence System:** Features a "Heartbeat" and "Reaper" mechanism to automatically clean up inactive players and handle host migration seamlessly.
+- **Responsive UI:** Built with NativeWind (Tailwind CSS) for a modern, mobile-first aesthetic.
+- **Offline Solo Play:** A dedicated "Play vs Bots" mode that allows for completely local gameplay without a network connection.
+- **Smart AI Opponents:** Bots feature a "Strategy Engine" with memory-span logic, smart-play probabilities, and "Human Attention" mechanics to ensure engaging gameplay.
+- **Enhanced Visual Feedback:** An advanced `ActionOverlay` system provides rich, animated feedback for every game event (Ask, Catch, Fish, Lucky Draw, etc.) using `react-native-reanimated`.
+- **Persistent Identity:** Uses Zustand with `AsyncStorage` to remember player names, IDs, and offline game progress across sessions.
 
 ## 🛠️ Tech Stack
 
-* **Frontend:** React Native (Expo).
-* **Backend/Database:** Supabase (PostgreSQL, Realtime, RPC).
-* **State Management:** Zustand.
-* **Styling:** NativeWind / Tailwind CSS.
-* **Icons:** Material Community Icons.
+- **Frontend:** React Native (Expo).
+- **Backend/Database:** Supabase (PostgreSQL, Realtime, RPC).
+- **State Management:** Zustand with Persistence (AsyncStorage).
+- **Animations:** React Native Reanimated.
+- **Styling:** NativeWind / Tailwind CSS.
+- **Icons:** Material Community Icons.
+- **Navigation:** Expo Router.
 
 ## 🚀 Getting Started
 
 ### Prerequisites
 
-* Node.js and npm/yarn.
-* Expo Go app on your mobile device or an emulator.
+- Node.js and npm/yarn.
+- Expo Go app on your mobile device or an emulator.
 
 ### Installation
 
 1. **Clone the repository:**
+
 ```bash
 git clone https://github.com/Yahia-Raouf/GoFish
 cd GoFish
 
 ```
 
-
 2. **Install dependencies:**
+
 ```bash
 npm install
 
 ```
 
-
 3. **Environment Variables:**
-Create a `.env` file in the root directory and add your Supabase credentials:
+   Create a `.env` file in the root directory and add your Supabase credentials:
+
 ```env
 EXPO_PUBLIC_SUPABASE_URL=your_supabase_url
 EXPO_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 
 ```
 
-
 4. **Start the project:**
+
 ```bash
 npx expo start
 
 ```
-
-
 
 ## 🗄️ Database Setup
 
@@ -73,7 +77,7 @@ The game relies on three primary tables: `rooms` for game state, `players` for h
 create table public.rooms (
   code text primary key,
   status text not null default 'WAITING' check (status in ('WAITING', 'PLAYING', 'FINISHED')),
-  host_id uuid,
+  host_id uuid, -- Optional: used if you want to track the specific creator
   turn_index int default 0,
   direction int default 1,
   ocean_cards jsonb default '[]'::jsonb,
@@ -92,6 +96,7 @@ create table public.players (
   seat_index int,
   cards jsonb default '[]'::jsonb,
   sets jsonb default '[]'::jsonb,
+  score int default 0, -- Added to track points across rounds
   is_ready boolean default false,
   last_seen timestamp with time zone default timezone('utc'::text, now()) not null,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
@@ -102,7 +107,8 @@ create table public.game_moves (
   id bigint generated by default as identity primary key,
   room_code text references public.rooms(code) on delete cascade not null,
   actor_id uuid references public.players(id) on delete cascade not null,
-  action_type text not null check (action_type in ('ASK', 'FISH', 'CATCH', 'FAIL', 'SET_COMPLETE', 'WIN', 'LUCKY')),
+  -- Updated constraints to match new animation types
+  action_type text not null check (action_type in ('ASK', 'FISH', 'CATCH', 'FAIL', 'BOOK', 'ROUND', 'LUCKY', 'WIN')),
   target_id uuid references public.players(id) on delete set null,
   rank_asked text,
   cards_transferred int default 0,
@@ -149,36 +155,58 @@ alter publication supabase_realtime add table game_moves;
 
 ## 📂 Project Structure
 
-* **`/app/screens`**: Contains the primary views: `Welcome`, `Home`, and `GameRoom`.
-* **`/components`**: UI building blocks including `ActiveGame` for gameplay and `LobbyView` for room management.
-* **`/hooks`**: The "brain" of the app.
-  * `useGameLoop`: Orchestrates Go Fish logic and turn-based transitions.
-  * `useGameRoom`: Manages data subscriptions and player presence.
-  * `useLobby`: Handles room creation, joining, and status updates.
-* **`/store`**: Zustand store for persisting player state.
-* **`/utils`**: Generic Supabase database helpers.
+- **`/app/screens`**: Contains the primary views: `Welcome`, `Home`, `GameRoom`, and the new `OfflineGameRoom`.
+- **`/components`**: UI building blocks including `ActiveGame` for gameplay and `ActionOverlay` for high-fidelity animations.
+- **`/hooks`**: The "brains" of the app.
+  - `useGameLoop`: Orchestrates Go Fish logic and turn-based transitions.
+  - `useGameRoom`: Manages data subscriptions and player presence.
+  - `useLobby`: Handles room creation, joining, and status updates.
+  - `useBotBrain`: Orchestrates AI decision-making for offline opponents.
+  - `useOfflineGameLoop`: Manages local game state transitions and turn logic.
+- **`/store`**: Zustand stores for persisting player state and local offline game data.
+- **`/utils`**: Generic Supabase database helpers.
 
 ## 🎮 Rules of the Game
 
 This project implements the standard rules of Go Fish with several automated enhancements:
 
-* **Starting the Game**: Players are dealt 7 cards each from a standard 52-card deck.
-* **Asking**: On your turn, you must ask a specific opponent for a rank that you already hold in your hand.
-* **Catching**: If the opponent has the requested rank, they must hand over all cards of that rank, and you get another turn.
-* **Go Fish**: If the opponent has no cards of that rank, you must "Go Fish" and draw a card from the ocean.
-* **Lucky Draw**: If you draw the exact rank you asked for, it is a "Lucky Draw," and you receive another turn.
-* **Books (Sets)**: Once you collect all four cards of a single rank, they are automatically removed from your hand and added to your "Sets" (score).
-* **Winning**: The game ends when all 13 books have been collected or the ocean is empty and players run out of cards.
+- **Starting the Game**: Players are dealt 7 cards each from a standard 52-card deck.
+- **Asking**: On your turn, you must ask a specific opponent for a rank that you already hold in your hand.
+- **Catching**: If the opponent has the requested rank, they must hand over all cards of that rank, and you get another turn.
+- **Go Fish**: If the opponent has no cards of that rank, you must "Go Fish" and draw a card from the ocean.
+- **Lucky Draw**: If you draw the exact rank you asked for, it is a "Lucky Draw," and you receive another turn.
+- **Books (Sets)**: Once you collect all four cards of a single rank, they are automatically removed from your hand and added to your "Sets" (score).
+- **Winning**: The game ends when all 13 books have been collected or the ocean is empty and players run out of cards.
+
+## 🧠 AI Bot Strategy Engine
+
+The offline mode is powered by a configurable "Bot Brain" located in `hooks/useBotBrain.ts`. Key logic includes:
+
+- **Memory Span**: Bots remember the last 8 moves to track which players hold specific ranks.
+- **Leader Bias**: Bots are 50% more likely to target the player currently leading in sets.
+- **Attention Mechanics**: If a human player hasn't been targeted for a specific number of turns, bots receive a "Human Attention Bias" to ensure the player remains involved.
+- **Smart Play**: A 90% probability (configurable) to make a logical move based on memory before falling back to random choices.
 
 ## 🧠 Key Technical Challenges
 
-* **Distributed State Management**: Synchronizing game turns and deck state across multiple devices without a centralized authoritative server required complex conditional logic in the `useGameLoop` hook to prevent race conditions during card transfers.
-* **The "Reaper" Presence Pattern**: One of the biggest challenges was handling players who disconnect mid-game. I implemented a heartbeat system where each player updates a `last_seen` timestamp. A "Reaper" logic was then built into the room hook where the player with the lowest seat index (the effective host) identifies and removes "ghost" players who haven't sent a heartbeat for over 60 seconds.
-* **Host Migration**: By using `seat_index` to determine the "effective host" rather than a static ID, the game can seamlessly continue even if the original room creator leaves, as the next available player automatically assumes administrative responsibilities.
+### 1. Serverless State Sync
+
+Managing a deck and turn logic without a central server required a **Host-based Authority** pattern. The player with the lowest `seat_index` acts as the effective host, responsible for triggered events like dealing new rounds and handling "Empty Hand" skips. All actions are logged to a `game_moves` table to ensure synchronized animations across all clients.
+
+### 2. The Reaper & Heartbeat System
+
+To prevent game freezes from disconnects, I implemented a **Heartbeat** system where clients pulse every 5 seconds. A "Reaper" logic on the host identifies and removes "ghost" players inactive for over 60 seconds. If a host leaves, the `seat_index` logic ensures the next available player seamlessly assumes administrative duties.
+
+### 3. Animation & State Coordination
+
+Integrating complex rules with high-fidelity visuals required strict **State Locking**. Using a `processing` state and async delays, the game ensures that animations for "Lucky Draws" or "Sets" (Books) finish playing before the database updates progress the turn.
+
+### 4. Smart AI Strategy Engine
+
+The solo mode features bots with **Memory Modeling**, allowing them to remember previous ranks asked for by opponents. To maintain engagement, I implemented a **Human Attention Bias**—if a human player is ignored for too long, the bots' scoring logic prioritizes the user as a target.
 
 ## 🚀 Future Roadmap
 
-* **Card Animations**: Implement `react-native-reanimated` to show cards physically flying from one player's hand to another during a "Catch" or from the ocean during a "Fish."
-* **Global Chat**: Add a real-time chat component within the lobby and active game screens using Supabase's broadcast feature.
-* **Sound Effects**: Integrate audio feedback for successful catches, "Go Fish" events, and completing a book.
-* **Custom Avatars**: Allow players to upload or select custom avatars instead of the default emoji-based system.
+- **Global Chat**: Add a real-time chat component within the lobby and active game screens using Supabase's broadcast feature.
+- **Sound Effects**: Integrate audio feedback for successful catches, "Go Fish" events, and completing a book.
+- **Custom Avatars**: Allow players to upload or select custom avatars instead of the default emoji-based system.
