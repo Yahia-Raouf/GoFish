@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { Stack, useRouter } from 'expo-router';
 import { Screen } from '../../components/Layout';
 import { ActiveGame } from '../../components/ActiveGame';
-import { ActionOverlay } from '../../components/ActionOverlay'; // <--- NEW IMPORT
+import { ActionOverlay } from '../../components/ActionOverlay';
 import { useOfflineGameStore } from '../../store/offlineGameStore';
 import { useOfflineGameLoop } from '../../hooks/useOfflineGameLoop';
 import { useBotBrain } from '../../hooks/useBotBrain';
@@ -10,19 +10,32 @@ import { usePlayerStore } from '../../store/store';
 
 export default function OfflineGameRoom() {
   const router = useRouter();
-  const { playerName, playerId } = usePlayerStore();
+
+  // 1. GRAB SETTERS (To fix the identity crisis)
+  const { playerName, playerId, setPlayerId, setPlayerName } = usePlayerStore();
   const { initGame, room, players } = useOfflineGameStore();
 
-  // 1. Init Game on Mount
   useEffect(() => {
-    initGame(playerName || 'Hero', playerId || 'offline-hero');
+    // 2. RESOLVE IDENTITY
+    // If the user has no ID (fresh install), we generate a fallback
+    // AND save it to the store so the UI knows who "You" are.
+    const effectiveName = playerName || 'Hero';
+    const effectiveId = playerId || 'offline-hero';
+
+    // FIX: Sync the store if it was empty
+    if (!playerId) setPlayerId(effectiveId);
+    if (!playerName) setPlayerName(effectiveName);
+
+    // 3. INIT GAME
+    // Now we start the game with the ID we are guaranteed to have
+    initGame(effectiveName, effectiveId);
   }, []);
 
-  // 2. Load Engine
+  // 4. Load Engine
   const gameLoop = useOfflineGameLoop();
-  const { currentAction, clearAction } = gameLoop; // <--- Destructure Animation Data
+  const { currentAction, clearAction } = gameLoop;
 
-  // 3. Load Brain
+  // 5. Load Brain
   useBotBrain(gameLoop.processMove, gameLoop.isProcessing);
 
   const handleExit = () => {
@@ -41,7 +54,7 @@ export default function OfflineGameRoom() {
         gameLoop={gameLoop}
       />
 
-      {/* The Animation Layer (Z-Index 100) */}
+      {/* The Animation Layer */}
       <ActionOverlay action={currentAction} onFinished={clearAction} />
     </Screen>
   );

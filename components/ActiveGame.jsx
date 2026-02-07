@@ -26,6 +26,9 @@ export const ActiveGame = ({ room, players, actions, gameLoop }) => {
   const [selectedRank, setSelectedRank] = useState(null);
   const [historyVisible, setHistoryVisible] = useState(false);
 
+  // Collapsible State
+  const [isTableExpanded, setIsTableExpanded] = useState(false);
+
   // 5. HELPER DATA
   const myPlayer = players.find((p) => p.id === playerId);
   const myRanks = Array.from(new Set(myPlayer?.cards?.map((c) => c.slice(0, -1)) || []));
@@ -39,41 +42,32 @@ export const ActiveGame = ({ room, players, actions, gameLoop }) => {
   const knownHands = useMemo(() => {
     if (!isOffline) return {};
 
-    // 1. Initialize empty knowledge base
     const knowledge = {};
     players.forEach((p) => {
       knowledge[p.id] = new Set();
     });
 
-    // 2. Scan recent memory logs
     const memoryLogs = logs.slice(-BOT_CONFIG.MEMORY_SPAN);
 
     memoryLogs.forEach((log) => {
-      const rank = String(log.rank); // Ensure string
+      const rank = String(log.rank);
       if (!rank || rank === 'undefined') return;
 
-      // RULE A: If you CATCH, you definitely have it (and Target definitely lost it)
       if (log.type === 'CATCH') {
         knowledge[log.actorId]?.add(rank);
-        knowledge[log.targetId]?.delete(rank); // Target gave it away
-      }
-      // RULE B: If you ASK (FAIL), you must have had it to ask
-      else if (log.type === 'FAIL') {
+        knowledge[log.targetId]?.delete(rank);
+      } else if (log.type === 'FAIL') {
         knowledge[log.actorId]?.add(rank);
-      }
-      // RULE C: Lucky Draw
-      else if (log.type === 'LUCKY') {
+      } else if (log.type === 'LUCKY') {
         knowledge[log.actorId]?.add(rank);
       }
     });
 
-    // 3. Remove "Dead" Ranks (Books that are already on the table)
     const bookedRanks = new Set();
     players.forEach((p) => {
       p.sets.forEach((s) => bookedRanks.add(s.rank));
     });
 
-    // Clean up knowledge base
     Object.keys(knowledge).forEach((pid) => {
       bookedRanks.forEach((br) => knowledge[pid].delete(br));
     });
@@ -92,7 +86,10 @@ export const ActiveGame = ({ room, players, actions, gameLoop }) => {
 
   return (
     <Center>
-      <ScrollView className="w-full px-4 pt-10" showsVerticalScrollIndicator={false}>
+      <ScrollView
+        className="w-full flex-1 px-4 pt-10"
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: 50 }}>
         {/* --- INFO DASHBOARD --- */}
         <View className="mb-6 gap-2 rounded-2xl border border-white/10 bg-slate-900/90 p-4 shadow-xl">
           <View className="flex-row items-center justify-between">
@@ -105,7 +102,7 @@ export const ActiveGame = ({ room, players, actions, gameLoop }) => {
                 </Text>
               </View>
 
-              {/* HISTORY BUTTON (Only Visible Offline) */}
+              {/* HISTORY BUTTON */}
               {isOffline && (
                 <TouchableOpacity
                   onPress={() => setHistoryVisible(true)}
@@ -131,180 +128,220 @@ export const ActiveGame = ({ room, players, actions, gameLoop }) => {
           </View>
         </View>
 
-        {/* --- PLAYER LIST --- */}
-        <Text className="mb-2 ml-1 text-xs font-bold uppercase tracking-widest text-blue-200/50">
-          Table
-        </Text>
-        <View className="mb-6 gap-2">
-          {players
-            .sort((a, b) => a.seat_index - b.seat_index)
-            .map((p) => {
-              const isCurrentTurn = room.turn_index === p.seat_index;
-              const isMe = p.id === playerId;
-              const isHost = p.id === effectiveHost?.id;
+        {/* --- COLLAPSIBLE PLAYER LIST (MATCHING DASHBOARD STYLE) --- */}
+        <TouchableOpacity
+          onPress={() => setIsTableExpanded(!isTableExpanded)}
+          activeOpacity={0.7}
+          className="mb-2 flex-row items-center justify-between rounded-2xl"
+          style={
+            !isTableExpanded
+              ? {
+                  // 🎨 STYLE UPDATE: Matches bg-slate-900/90 and border-white/10
+                  backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                  borderColor: 'rgba(255, 255, 255, 0.1)',
+                  borderWidth: 1,
+                  padding: 16,
+                  marginBottom: 24,
+                  // Shadow to match shadow-xl
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 10 },
+                  shadowOpacity: 0.2,
+                  shadowRadius: 10,
+                  elevation: 5,
+                }
+              : {
+                  paddingRight: 8,
+                  marginLeft: 4,
+                }
+          }>
+          <View className="flex-row items-center gap-3">
+            <Text
+              className={`text-xs font-bold uppercase tracking-widest ${!isTableExpanded ? 'text-blue-100' : 'text-blue-200/50'}`}>
+              Table
+            </Text>
+            {!isTableExpanded && (
+              <View className="rounded border border-blue-400/20 bg-blue-500/20 px-2 py-0.5">
+                <Text className="text-[10px] font-bold text-blue-200">
+                  {players.length} Players
+                </Text>
+              </View>
+            )}
+          </View>
 
-              // Get Known Cards for this player
-              const knownRanks = Array.from(knownHands[p.id] || []).sort();
+          <MaterialCommunityIcons
+            name={isTableExpanded ? 'chevron-up' : 'chevron-down'}
+            size={20}
+            color="#60a5fa"
+          />
+        </TouchableOpacity>
 
-              return (
-                <View
-                  key={p.id}
-                  className={`flex-row items-center justify-between rounded-xl border-l-4 p-3 shadow-sm ${
-                    isCurrentTurn
-                      ? 'border-yellow-400 bg-slate-800'
-                      : 'border-transparent bg-slate-900/50'
-                  }`}>
-                  <View className="flex-1">
-                    {/* Name & Role Row */}
-                    <View className="flex-row items-center gap-2">
-                      <Text
-                        className={`text-lg font-bold ${isCurrentTurn ? 'text-yellow-400' : 'text-slate-300'}`}>
-                        {p.name} {isMe ? '(You)' : ''}
-                      </Text>
-                      {isOffline && p.isBot ? (
-                        <MaterialCommunityIcons name="robot" size={14} color="#94a3b8" />
-                      ) : (
-                        isHost && <MaterialCommunityIcons name="crown" size={14} color="#facc15" />
+        {isTableExpanded && (
+          <View className="mb-6 gap-2">
+            {players
+              .sort((a, b) => a.seat_index - b.seat_index)
+              .map((p) => {
+                const isCurrentTurn = room.turn_index === p.seat_index;
+                const isMe = p.id === playerId;
+                const isHost = p.id === effectiveHost?.id;
+                const knownRanks = Array.from(knownHands[p.id] || []).sort();
+
+                return (
+                  <View
+                    key={p.id}
+                    className={`flex-row items-center justify-between rounded-xl border-l-4 p-3 shadow-sm ${
+                      isCurrentTurn
+                        ? 'border-yellow-400 bg-slate-800'
+                        : 'border-transparent bg-slate-900/50'
+                    }`}>
+                    <View className="flex-1">
+                      <View className="flex-row items-center gap-2">
+                        <Text
+                          className={`text-lg font-bold ${isCurrentTurn ? 'text-yellow-400' : 'text-slate-300'}`}>
+                          {p.name} {isMe ? '(You)' : ''}
+                        </Text>
+                        {isOffline && p.isBot ? (
+                          <MaterialCommunityIcons name="robot" size={14} color="#94a3b8" />
+                        ) : (
+                          isHost && (
+                            <MaterialCommunityIcons name="crown" size={14} color="#facc15" />
+                          )
+                        )}
+                      </View>
+
+                      {/* KNOWLEDGE INDICATORS */}
+                      {isOffline && !isMe && knownRanks.length > 0 && (
+                        <View className="mt-1 flex-row flex-wrap gap-1">
+                          {knownRanks.map((rank) => (
+                            <View
+                              key={rank}
+                              className="flex-row items-center rounded border border-blue-500/20 bg-blue-950/60 px-1.5 py-0.5">
+                              <MaterialCommunityIcons
+                                name="eye-outline"
+                                size={10}
+                                color="#60a5fa"
+                              />
+                              <Text className="ml-1 text-[10px] font-bold text-blue-200">
+                                {rank}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
                       )}
                     </View>
 
-                    {/* 🧠 KNOWLEDGE INDICATORS (New Feature) */}
-                    {isOffline && !isMe && knownRanks.length > 0 && (
-                      <View className="mt-1 flex-row flex-wrap gap-1">
-                        {knownRanks.map((rank) => (
-                          <View
-                            key={rank}
-                            className="flex-row items-center rounded border border-blue-500/20 bg-blue-950/60 px-1.5 py-0.5">
-                            <MaterialCommunityIcons name="eye-outline" size={10} color="#60a5fa" />
-                            <Text className="ml-1 text-[10px] font-bold text-blue-200">{rank}</Text>
-                          </View>
-                        ))}
+                    <View className="items-end">
+                      <View className="flex-row items-center gap-1">
+                        <MaterialCommunityIcons name="cards" size={14} color="#94a3b8" />
+                        <Text className="font-bold text-white">{p.cards?.length || 0}</Text>
                       </View>
-                    )}
-                  </View>
-
-                  <View className="items-end">
-                    <View className="flex-row items-center gap-1">
-                      <MaterialCommunityIcons name="cards" size={14} color="#94a3b8" />
-                      <Text className="font-bold text-white">{p.cards?.length || 0}</Text>
+                      {p.sets?.length > 0 && (
+                        <Text className="text-xs font-bold text-green-400">
+                          {p.sets.length} {p.sets.length === 1 ? 'Set' : 'Sets'}
+                        </Text>
+                      )}
                     </View>
-                    {p.sets?.length > 0 && (
-                      <Text className="text-xs font-bold text-green-400">
-                        {p.sets.length} {p.sets.length === 1 ? 'Set' : 'Sets'}
-                      </Text>
-                    )}
                   </View>
-                </View>
-              );
-            })}
-        </View>
+                );
+              })}
+          </View>
+        )}
 
         {/* --- MY HAND --- */}
         <Text className="mb-2 ml-1 text-xs font-bold uppercase tracking-widest text-blue-200/50">
           Your Hand
         </Text>
 
-        <ScrollView
-          className="mb-6 max-h-60 grow-0"
-          nestedScrollEnabled={true}
-          showsVerticalScrollIndicator={true}>
-          <View className="flex-row flex-wrap gap-2 pb-2">
-            {myPlayer?.cards?.length > 0 ? (
-              myPlayer.cards
-                .sort((a, b) => {
-                  const ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
-                  return ranks.indexOf(a.slice(0, -1)) - ranks.indexOf(b.slice(0, -1));
-                })
-                .map((card, index) => (
-                  <View
-                    key={index}
-                    className="aspect-[2/3] w-[18%] items-center justify-center rounded-lg border-b-4 border-gray-300 bg-white shadow-md">
-                    <Text
-                      className={`text-xl font-black ${['H', 'D'].includes(card.slice(-1)) ? 'text-red-600' : 'text-slate-900'}`}>
-                      {card.slice(0, -1)}
-                    </Text>
-                    <MaterialCommunityIcons
-                      name={
-                        card.includes('H')
-                          ? 'cards-heart'
-                          : card.includes('D')
-                            ? 'cards-diamond'
-                            : card.includes('C')
-                              ? 'cards-club'
-                              : 'cards-spade'
-                      }
-                      size={16}
-                      color={['H', 'D'].includes(card.slice(-1)) ? '#dc2626' : '#0f172a'}
-                    />
-                  </View>
-                ))
-            ) : (
-              <View className="w-full rounded-xl border border-dashed border-white/10 bg-white/5 p-4">
-                <Text className="text-center italic text-white/40">Waiting for deal...</Text>
-              </View>
-            )}
-          </View>
-        </ScrollView>
+        <View className="flex-row flex-wrap gap-2">
+          {myPlayer?.cards?.length > 0 ? (
+            myPlayer.cards
+              .sort((a, b) => {
+                const ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+                return ranks.indexOf(a.slice(0, -1)) - ranks.indexOf(b.slice(0, -1));
+              })
+              .map((card, index) => (
+                <View
+                  key={index}
+                  className="aspect-[2/3] w-[18%] items-center justify-center rounded-lg border-b-4 border-gray-300 bg-white shadow-md">
+                  <Text
+                    className={`text-xl font-black ${['H', 'D'].includes(card.slice(-1)) ? 'text-red-600' : 'text-slate-900'}`}>
+                    {card.slice(0, -1)}
+                  </Text>
+                  <MaterialCommunityIcons
+                    name={
+                      card.includes('H')
+                        ? 'cards-heart'
+                        : card.includes('D')
+                          ? 'cards-diamond'
+                          : card.includes('C')
+                            ? 'cards-club'
+                            : 'cards-spade'
+                    }
+                    size={16}
+                    color={['H', 'D'].includes(card.slice(-1)) ? '#dc2626' : '#0f172a'}
+                  />
+                </View>
+              ))
+          ) : (
+            <View className="w-full rounded-xl border border-dashed border-white/10 bg-white/5 p-4">
+              <Text className="text-center italic text-white/40">Waiting for deal...</Text>
+            </View>
+          )}
+        </View>
 
         {/* --- MY SETS --- */}
         <Text className="mb-2 ml-1 text-xs font-bold uppercase tracking-widest text-green-400/80">
           Your Sets (Score: {myPlayer?.sets?.length || 0})
         </Text>
 
-        <ScrollView
-          className="mb-24 max-h-60 grow-0"
-          nestedScrollEnabled={true}
-          showsVerticalScrollIndicator={true}>
-          <View className="flex-row flex-wrap gap-2 pb-2">
-            {myPlayer?.sets?.length > 0 ? (
-              myPlayer.sets.map((set, index) => (
-                <View
-                  key={index}
-                  className="aspect-[2/3] w-[18%] items-center justify-center rounded-lg border-b-4 border-green-600 bg-yellow-100 shadow-md">
-                  <Text className="text-xl font-black text-green-800">{set.rank}</Text>
-                  <MaterialCommunityIcons name="star-circle" size={18} color="#16a34a" />
-                  <Text className="mt-1 text-[8px] font-bold uppercase text-green-700">Full</Text>
-                </View>
-              ))
-            ) : (
-              <View className="w-full rounded-xl border border-white/5 bg-black/20 p-3">
-                <Text className="text-center text-xs italic text-white/30">
-                  No sets collected yet.
-                </Text>
+        <View className="mb-6 flex-row flex-wrap gap-2 pb-2">
+          {myPlayer?.sets?.length > 0 ? (
+            myPlayer.sets.map((set, index) => (
+              <View
+                key={index}
+                className="aspect-[2/3] w-[18%] items-center justify-center rounded-lg border-b-4 border-green-600 bg-yellow-100 shadow-md">
+                <Text className="text-xl font-black text-green-800">{set.rank}</Text>
+                <MaterialCommunityIcons name="star-circle" size={18} color="#16a34a" />
+                <Text className="mt-1 text-[8px] font-bold uppercase text-green-700">Full</Text>
               </View>
-            )}
-          </View>
-        </ScrollView>
-      </ScrollView>
-
-      {/* --- BOTTOM ACTION BAR --- */}
-      <View className="absolute bottom-0 w-full bg-gradient-to-t from-black/90 to-transparent px-6 pb-8 pt-4">
-        {isMyTurn ? (
-          <Button
-            title="Make a Move"
-            onPress={() => setModalVisible(true)}
-            variant="primary"
-            disabled={isProcessing}
-          />
-        ) : (
-          <View className="items-center py-2">
-            <Text className="animate-pulse font-medium italic text-white/50">
-              Waiting for {players.find((p) => p.seat_index === room.turn_index)?.name}...
-            </Text>
-          </View>
-        )}
-
-        {/* --- EXIT CONTROLS --- */}
-        <View className="mb-4 mt-4 w-full gap-3 opacity-80">
-          {myPlayer?.id === effectiveHost?.id ? (
-            <Button
-              title="End Game (Host)"
-              variant="danger"
-              onPress={() => actions.endRoom(room.code)}
-            />
-          ) : null}
+            ))
+          ) : (
+            <View className="w-full rounded-xl border border-white/5 bg-black/20 p-3">
+              <Text className="text-center text-xs italic text-white/30">
+                No sets collected yet.
+              </Text>
+            </View>
+          )}
         </View>
-      </View>
+
+        {/* --- BOTTOM ACTION BAR --- */}
+        <View className="w-full border-t border-white/10 pb-12 pt-4">
+          {isMyTurn ? (
+            <Button
+              title="Make a Move"
+              onPress={() => setModalVisible(true)}
+              variant="primary"
+              disabled={isProcessing}
+            />
+          ) : (
+            <View className="items-center py-2">
+              <Text className="animate-pulse font-medium italic text-white/50">
+                Waiting for {players.find((p) => p.seat_index === room.turn_index)?.name}...
+              </Text>
+            </View>
+          )}
+
+          {/* --- EXIT CONTROLS --- */}
+          <View className="mt-4 w-full gap-3 opacity-80">
+            {myPlayer?.id === effectiveHost?.id ? (
+              <Button
+                title="End Game (Host)"
+                variant="danger"
+                onPress={() => actions.endRoom(room.code)}
+              />
+            ) : null}
+          </View>
+        </View>
+      </ScrollView>
 
       {/* --- THE "ASK" MODAL --- */}
       <Modal
@@ -314,7 +351,6 @@ export const ActiveGame = ({ room, players, actions, gameLoop }) => {
         onRequestClose={() => setModalVisible(false)}>
         <View className="flex-1 justify-end bg-black/60">
           <View className="h-[70%] rounded-t-3xl border-t border-white/10 bg-slate-900 p-6">
-            {/* HEADER */}
             <View className="mb-6 flex-row items-center justify-between">
               <Text className="text-2xl font-black italic text-white">ASK A PLAYER</Text>
               <TouchableOpacity
@@ -324,7 +360,6 @@ export const ActiveGame = ({ room, players, actions, gameLoop }) => {
               </TouchableOpacity>
             </View>
 
-            {/* STEP 1: SELECT OPPONENT */}
             <Text className="mb-3 text-xs font-bold uppercase tracking-widest text-blue-200">
               1. Who to ask?
             </Text>
@@ -342,7 +377,6 @@ export const ActiveGame = ({ room, players, actions, gameLoop }) => {
               ))}
             </ScrollView>
 
-            {/* STEP 2: SELECT RANK */}
             <Text className="mb-3 text-xs font-bold uppercase tracking-widest text-blue-200">
               2. For which rank?
             </Text>
@@ -364,7 +398,6 @@ export const ActiveGame = ({ room, players, actions, gameLoop }) => {
               </View>
             )}
 
-            {/* SUBMIT BUTTON */}
             <View className="mt-auto">
               <Button
                 title={isProcessing ? 'Sending...' : 'Ask!'}
