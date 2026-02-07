@@ -34,7 +34,7 @@ export const generateDeck = () => {
 };
 
 // ============================================================
-// 🏪 OFFLINE STORE
+// 📦 OFFLINE STORE
 // ============================================================
 const BOT_NAMES = ['Bot Alice', 'Bot Bob', 'Bot Charlie'];
 
@@ -54,6 +54,8 @@ interface RoomState {
   ocean_cards: string[];
   turn_index: number;
   direction: number;
+  // NEW: Track how long the human has been waiting
+  turns_since_human_played: number; 
 }
 
 interface OfflineGameState {
@@ -79,6 +81,7 @@ export const useOfflineGameStore = create<OfflineGameState>()(
         ocean_cards: [],
         turn_index: 0,
         direction: 1,
+        turns_since_human_played: 0, // Default
       },
       players: [],
       logs: [],
@@ -123,7 +126,8 @@ export const useOfflineGameStore = create<OfflineGameState>()(
                 status: 'PLAYING',
                 ocean_cards: deck,
                 turn_index: 0, // Human starts
-                direction: 1
+                direction: 1,
+                turns_since_human_played: 0
             },
             players: newPlayers,
             logs: []
@@ -147,6 +151,7 @@ export const useOfflineGameStore = create<OfflineGameState>()(
             ocean_cards: [],
             turn_index: 0,
             direction: 1,
+            turns_since_human_played: 0
         },
         players: [],
         logs: []

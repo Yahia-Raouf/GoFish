@@ -33,6 +33,9 @@ const generateDeck = () => {
   return deck;
 };
 
+// Simple delay helper for async operations
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 export const useGameLoop = (room: any, players: any[]) => {
   const { playerId } = usePlayerStore();
   const [processing, setProcessing] = useState(false);
@@ -61,9 +64,7 @@ export const useGameLoop = (room: any, players: any[]) => {
     }
 
     // Case 2: Player has 0 Cards (Empty Hand Rule)
-    // If it's their turn but they have no cards, they can't ask. Skip them.
     if (currentPlayer.cards && currentPlayer.cards.length === 0) {
-        // ONLY pass if the round isn't over (otherwise we loop forever)
         if (!isRoundOver(players, room.ocean_cards)) {
             console.log("⚠️ Player has 0 cards. Skipping turn...");
             passTurn();
@@ -80,8 +81,6 @@ export const useGameLoop = (room: any, players: any[]) => {
   useEffect(() => {
     if (!isHost || !room || !players.length) return;
 
-    // Trigger if Ocean is empty AND everyone's hand is empty (Fresh Game or Round End)
-    // OR if status is PLAYING but no cards exist yet.
     const isFreshGame =
       room.status === 'PLAYING' &&
       (!room.ocean_cards || room.ocean_cards.length === 0) &&
@@ -100,6 +99,16 @@ export const useGameLoop = (room: any, players: any[]) => {
     console.log('🎰 HOST: Starting New Round...');
 
     try {
+      // 1. Trigger Animation for everyone (INSERT ROUND MOVE)
+      await dbInsert('game_moves', {
+          room_code: room.code,
+          actor_id: playerId,
+          action_type: 'ROUND', 
+      });
+
+      // 2. Wait for animation to play (3s) before dealing
+      await delay(3000);
+
       const deck = generateDeck();
       const updates = [];
       const CARDS_PER_PLAYER = 7;
@@ -107,7 +116,6 @@ export const useGameLoop = (room: any, players: any[]) => {
       for (const player of players) {
         const hand = deck.splice(0, CARDS_PER_PLAYER);
         updates.push(
-          // 🛠️ FIX: Explicitly set 'sets' to empty array []
           dbUpdate('players', { cards: sortHand(hand), sets: [] }, 'id', player.id)
         );
       }
@@ -133,27 +141,20 @@ export const useGameLoop = (room: any, players: any[]) => {
   };
 
   // ============================================================
-  // 🏁 ROUND END LOGIC (Fixed)
+  // 🏁 ROUND END LOGIC
   // ============================================================
   const isRoundOver = (currentPlayers: any[], ocean: any[]) => {
-      // 1. Safety Check: Is the game loading?
       if (!ocean || !currentPlayers || currentPlayers.length < 2) return false;
 
-      // 2. THE FIX: Fresh Deck Guard
-      // If the Ocean is "Full" (calculated based on player count), 
-      // it means we just dealt. DO NOT end the round.
-      // We allow a small buffer (-1) just in case.
       const initialOceanCount = 52 - (currentPlayers.length * 7);
       if (ocean.length >= initialOceanCount - 1) {
           return false; 
       }
 
-      // 3. Standard Rule: Round ends if 1 or 0 players have cards left
       const activePlayers = currentPlayers.filter(p => p.cards && p.cards.length > 0);
       return activePlayers.length <= 1;
   };
 
-  // 🛠️ HOST MONITOR: Check for Round End constantly
   useEffect(() => {
       if (!isHost || !room || room.status !== 'PLAYING' || processing) return;
 
@@ -161,16 +162,10 @@ export const useGameLoop = (room: any, players: any[]) => {
           console.log("🏁 Round End Detected (<= 1 active player). Resetting...");
           handleRoundEnd();
       }
-  }, [players, room, isHost]); // Runs whenever hand sizes change
+  }, [players, room, isHost]);
 
   const handleRoundEnd = async () => {
-      if (processing) return; // Prevent double-trigger
-      
-      // Reset Ocean to empty to signal "Limbo" state if needed, 
-      // but startNewRound() handles the re-deal anyway.
-      
-      // We wait a brief moment so players see the final state, then re-deal.
-      // (For now, instant reset)
+      if (processing) return; 
       await startNewRound(); 
   };
 
@@ -187,15 +182,17 @@ export const useGameLoop = (room: any, players: any[]) => {
       let newHand = [...hand];
       let newSets = [...(currentSets || [])];
       let bookFound = false;
+      let bookRank = null; 
 
       for (const rank in rankCounts) {
           if (rankCounts[rank] === 4) {
               bookFound = true;
+              bookRank = rank;
               newHand = newHand.filter(c => getRank(c) !== rank);
               newSets.push({ rank, timestamp: Date.now() });
           }
       }
-      return { newHand, newSets, bookFound };
+      return { newHand, newSets, bookFound, bookRank };
   };
 
   // ============================================================
@@ -220,24 +217,36 @@ export const useGameLoop = (room: any, players: any[]) => {
             
             const newTargetHand = targetHand.filter((c: string) => getRank(c) !== rank);
             const rawMyHand = [...myPlayer.cards, ...cardsToTransfer];
-            const { newHand, newSets } = processBooks(rawMyHand, myPlayer.sets);
+            
+            const { newHand, newSets, bookFound, bookRank } = processBooks(rawMyHand, myPlayer.sets);
 
+            // 1. Insert CATCH Move first (so animation triggers)
+            await dbInsert('game_moves', {
+                room_code: room.code,
+                actor_id: playerId,
+                target_id: targetId,
+                action_type: 'CATCH',
+                rank_asked: rank,
+                cards_transferred: cardsToTransfer.length
+            });
+
+            // 2. Perform DB Updates
             await Promise.all([
                 dbUpdate('players', { cards: newTargetHand }, 'id', targetId),
-                dbUpdate('players', { cards: sortHand(newHand), sets: newSets }, 'id', playerId),
-                dbInsert('game_moves', {
-                    room_code: room.code,
-                    actor_id: playerId,
-                    target_id: targetId,
-                    action_type: 'CATCH',
-                    rank_asked: rank,
-                    cards_transferred: cardsToTransfer.length
-                })
+                dbUpdate('players', { cards: sortHand(newHand), sets: newSets }, 'id', playerId)
             ]);
             
-            // LOGIC FIX: If I catch the cards, make a book, and reach 0 cards...
-            // I technically get another turn, but I have no cards to ask with.
-            // The useEffect "TURN FIXER" will catch this and auto-pass.
+            // 3. If Book Found, Wait then Trigger BOOK Move
+            if (bookFound && bookRank) {
+                await delay(2500);
+
+                await dbInsert('game_moves', {
+                    room_code: room.code,
+                    actor_id: playerId,
+                    action_type: 'BOOK',
+                    rank_asked: bookRank 
+                });
+            }
 
         } else {
             // --- FAIL ---
@@ -266,7 +275,6 @@ export const useGameLoop = (room: any, players: any[]) => {
       // 1. Ocean Empty?
       if (!room.ocean_cards || room.ocean_cards.length === 0) {
           console.log("Ocean Empty. Passing turn.");
-          // If ocean is empty, we must pass turn (or end round).
           await passTurn(nextTurnSeat);
           return;
       }
@@ -276,8 +284,9 @@ export const useGameLoop = (room: any, players: any[]) => {
       const drawnRank = getRank(drawnCard);
 
       const rawMyHand = [...myPlayer.cards, drawnCard];
-      const { newHand, newSets } = processBooks(rawMyHand, myPlayer.sets);
+      const { newHand, newSets, bookFound, bookRank } = processBooks(rawMyHand, myPlayer.sets);
 
+      // Perform updates immediately 
       await Promise.all([
           dbUpdate('rooms', { ocean_cards: currentOcean }, 'code', room.code),
           dbUpdate('players', { cards: sortHand(newHand), sets: newSets }, 'id', playerId)
@@ -291,8 +300,7 @@ export const useGameLoop = (room: any, players: any[]) => {
               action_type: 'LUCKY',
               rank_asked: rankAsked 
           });
-          // Same Logic: If lucky draw makes a book and leaves me with 0 cards,
-          // the useEffect "Turn Fixer" will see 0 cards and pass for me.
+          
       } else {
           console.log("Standard Draw. Turn Passes.");
           await dbInsert('game_moves', {
@@ -302,36 +310,41 @@ export const useGameLoop = (room: any, players: any[]) => {
           });
           await passTurn(nextTurnSeat);
       }
+
+      // 3. If Book Found from Fishing, trigger BOOK animation
+      if (bookFound && bookRank) {
+          await delay(2500);
+
+          await dbInsert('game_moves', {
+              room_code: room.code,
+              actor_id: playerId,
+              action_type: 'BOOK',
+              rank_asked: bookRank
+          });
+      }
   };
 
   // ============================================================
-  // ⏭️ SMART PASS TURN (The Skipper)
+  // ⏭️ SMART PASS TURN
   // ============================================================
   const passTurn = async (forcedNextSeat: number | null = null) => {
     if (!sortedPlayers.length) return;
 
     let candidates = [...sortedPlayers];
-    
-    // Start searching from the player AFTER the current turn
     const currentIdx = candidates.findIndex(p => p.seat_index === room.turn_index);
     
-    // If we have a forced target (from Go Fish), start searching from THERE.
     let searchStartIndex = currentIdx + room.direction;
     if (forcedNextSeat !== null) {
         const forcedIdx = candidates.findIndex(p => p.seat_index === forcedNextSeat);
         if (forcedIdx !== -1) searchStartIndex = forcedIdx;
     }
 
-    // Loop through all players to find one with cards > 0
-    // We loop max `players.length` times to prevent infinite loops
     for (let i = 0; i < candidates.length; i++) {
-        // Calculate wrapped index
         let idx = (searchStartIndex + i) % candidates.length;
         if (idx < 0) idx += candidates.length;
 
         const candidate = candidates[idx];
 
-        // CHECK: Does this player have cards?
         if (candidate.cards && candidate.cards.length > 0) {
             console.log(`Passing turn to ${candidate.name} (Seat ${candidate.seat_index})`);
             await dbUpdate('rooms', { turn_index: candidate.seat_index }, 'code', room.code);
@@ -339,7 +352,6 @@ export const useGameLoop = (room: any, players: any[]) => {
         }
     }
 
-    // If we get here, NO ONE has cards (Round Over)
     console.log("⚠️ No active players found. Triggering Round End.");
     handleRoundEnd();
   };

@@ -6,8 +6,16 @@ import { usePlayerStore } from '../store/store';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useOfflineGameStore, getRank } from '../store/offlineGameStore';
 import { BOT_CONFIG } from '../hooks/useBotBrain';
+import { ActionOverlay } from './ActionOverlay';
 
-export const ActiveGame = ({ room, players, actions, gameLoop }) => {
+export const ActiveGame = ({
+  room,
+  players,
+  actions,
+  gameLoop,
+  onlineAction, // <--- NEW PROP
+  onClearOnlineAction, // <--- NEW PROP
+}) => {
   const { playerId } = usePlayerStore();
 
   // 1. DETECT MODE
@@ -17,10 +25,22 @@ export const ActiveGame = ({ room, players, actions, gameLoop }) => {
   const { logs: offlineLogs } = useOfflineGameStore();
   const logs = isOffline ? offlineLogs : [];
 
-  // 3. PLUG IN THE BRAIN
+  // 3. PLUG IN THE BRAIN / ACTIONS
   const { isMyTurn, askForCard, isProcessing, effectiveHost } = gameLoop;
 
-  // 4. UI STATE
+  // 4. ANIMATION HANDLER
+  // If offline, use gameLoop.currentAction. If online, use the prop passed down.
+  const activeAction = isOffline ? gameLoop.currentAction : onlineAction;
+
+  const handleActionFinished = () => {
+    if (isOffline) {
+      gameLoop.clearAction();
+    } else if (onClearOnlineAction) {
+      onClearOnlineAction();
+    }
+  };
+
+  // 5. UI STATE
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedTarget, setSelectedTarget] = useState(null);
   const [selectedRank, setSelectedRank] = useState(null);
@@ -29,7 +49,7 @@ export const ActiveGame = ({ room, players, actions, gameLoop }) => {
   // Collapsible State
   const [isTableExpanded, setIsTableExpanded] = useState(false);
 
-  // 5. HELPER DATA
+  // 6. HELPER DATA
   const myPlayer = players.find((p) => p.id === playerId);
   const myRanks = Array.from(new Set(myPlayer?.cards?.map((c) => c.slice(0, -1)) || []));
   const opponents = players.filter((p) => p.id !== playerId);
@@ -37,7 +57,7 @@ export const ActiveGame = ({ room, players, actions, gameLoop }) => {
   const recentLogs = isOffline ? logs.slice(-BOT_CONFIG.MEMORY_SPAN).reverse() : [];
 
   // ============================================================
-  // 🧠 VISUAL MEMORY LOGIC
+  // 🧠 VISUAL MEMORY LOGIC (Offline Only)
   // ============================================================
   const knownHands = useMemo(() => {
     if (!isOffline) return {};
@@ -86,6 +106,9 @@ export const ActiveGame = ({ room, players, actions, gameLoop }) => {
 
   return (
     <Center>
+      {/* --- ACTION OVERLAY (Plays animations on top of everything) --- */}
+      <ActionOverlay action={activeAction} onFinished={handleActionFinished} />
+
       <ScrollView
         className="w-full flex-1 px-4 pt-10"
         showsVerticalScrollIndicator={false}
@@ -128,7 +151,7 @@ export const ActiveGame = ({ room, players, actions, gameLoop }) => {
           </View>
         </View>
 
-        {/* --- COLLAPSIBLE PLAYER LIST (MATCHING DASHBOARD STYLE) --- */}
+        {/* --- COLLAPSIBLE PLAYER LIST --- */}
         <TouchableOpacity
           onPress={() => setIsTableExpanded(!isTableExpanded)}
           activeOpacity={0.7}
@@ -136,13 +159,11 @@ export const ActiveGame = ({ room, players, actions, gameLoop }) => {
           style={
             !isTableExpanded
               ? {
-                  // 🎨 STYLE UPDATE: Matches bg-slate-900/90 and border-white/10
                   backgroundColor: 'rgba(15, 23, 42, 0.9)',
                   borderColor: 'rgba(255, 255, 255, 0.1)',
                   borderWidth: 1,
                   padding: 16,
                   marginBottom: 24,
-                  // Shadow to match shadow-xl
                   shadowColor: '#000',
                   shadowOffset: { width: 0, height: 10 },
                   shadowOpacity: 0.2,

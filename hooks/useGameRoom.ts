@@ -15,6 +15,7 @@ export const useGameRoom = (roomCode: string) => {
 
   const [players, setPlayers] = useState<any[]>([]);
   const [room, setRoom] = useState<any>(null); // <--- Stores Game State (Status, Deck, Turn)
+  const [lastAction, setLastAction] = useState<any>(null); // <--- NEW: Stores the latest move for animation
   
   const { playerId } = usePlayerStore();
   
@@ -66,7 +67,6 @@ export const useGameRoom = (roomCode: string) => {
 
       // 2. ELECT A REAPER (Prevent race conditions)
       // We sort players by seat_index. The first *ALIVE* player is responsible for cleanup.
-      // This handles "Host Migration" automatically—if the Host dies, Seat 1 becomes the Reaper.
       const alivePlayers = currentPlayers.filter(p => {
         const lastSeen = new Date(p.last_seen).getTime();
         return (now - lastSeen) <= GHOST_THRESHOLD;
@@ -113,29 +113,23 @@ export const useGameRoom = (roomCode: string) => {
     initData();
 
     // --- 2. SUBSCRIBE TO PLAYERS ---
-    // Note: We subscribe to ALL players (null filter) to catch DELETE events
-    // because Supabase DELETE payloads don't include custom columns like room_code.
     const playerSub = dbSubscribe(
       `room_players_${roomCode}`,
       'players',
       null, 
       (payload) => {
-        // A. FILTERING: Ignore events from other rooms
         if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
            if (payload.new.room_code !== roomCode) return;
         }
 
-        // B. STATE UPDATES
         if (payload.eventType === 'INSERT') {
           setPlayers((prev) => {
-             // Prevent duplicates
              if (prev.find(p => p.id === payload.new.id)) return prev;
              return [...prev, payload.new].sort((a, b) => a.seat_index - b.seat_index);
           });
         }
 
         if (payload.eventType === 'DELETE') {
-          // We can only filter by ID here, so we remove if it exists in our list
           setPlayers((prev) => prev.filter((p) => p.id !== payload.old.id));
         }
 
@@ -148,27 +142,47 @@ export const useGameRoom = (roomCode: string) => {
       }
     );
 
-    // --- 3. SUBSCRIBE TO ROOM STATUS (UPDATED) ---
+    // --- 3. SUBSCRIBE TO ROOM STATUS ---
     const roomSub = dbSubscribe(
       `room_status_${roomCode}`,
       'rooms',
       `code=eq.${roomCode}`, 
       (payload) => {
-        // A. UPDATE EVENT (Status change, etc.)
         if (payload.eventType === 'UPDATE') {
           setRoom(payload.new);
         }
         
-        // B. DELETE EVENT (Host Killed the Room)
         if (payload.eventType === 'DELETE') {
            console.log("💀 Room deleted by Host. Kicking player...");
-           
-           // Show Toast / Alert
            Alert.alert("Game Ended", "The Host has ended the game.");
-           
-           // Navigate Home
-           // We use replace to prevent going 'back' to the dead room
            router.replace('/screens/Home');
+        }
+      }
+    );
+
+    // --- 4. SUBSCRIBE TO MOVES (ANIMATIONS) ---
+    // This listens for any "Move" inserted into the DB and triggers the animation
+    const movesSub = dbSubscribe(
+      `room_moves_${roomCode}`,
+      'game_moves',
+      `room_code=eq.${roomCode}`,
+      (payload) => {
+        if (payload.eventType === 'INSERT') {
+          const move = payload.new;
+          const currentPlayers = playersRef.current;
+
+          // Resolve IDs to Names
+          const actor = currentPlayers.find(p => p.id === move.actor_id);
+          const target = currentPlayers.find(p => p.id === move.target_id);
+
+          setLastAction({
+            type: move.action_type, // 'ASK', 'CATCH', 'FAIL', etc.
+            actorName: actor?.name || 'Unknown',
+            targetName: target?.name || 'Unknown',
+            rank: move.rank_asked,
+            count: move.cards_transferred,
+            duration: 2500 // Consistent timing for online play
+          });
         }
       }
     );
@@ -177,8 +191,9 @@ export const useGameRoom = (roomCode: string) => {
     return () => {
       playerSub.unsubscribe();
       roomSub.unsubscribe();
+      movesSub.unsubscribe();
     };
   }, [roomCode]);
 
-  return { players, room };
+  return { players, room, lastAction, setLastAction };
 };
